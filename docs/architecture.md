@@ -8,7 +8,7 @@ bewusst von Lucoris entkoppelt und dient zugleich als Erprobungsfeld für einen 
 Java-Stack, der später ein Lucoris-Kern-Backend tragen könnte.
 
 ## Drei fachliche Aufgaben (bestimmen das ganze Design)
-1. Welches Ereignis ist global relevant?            -> Signifikanz-Ranking (event_significance)
+1. Welches Ereignis ist global relevant?             -> Signifikanz-Ranking (event_significance)
 2. Welches ist marktrelevant UND wichtig genug für   -> theme.is_market_relevant + Signifikanz-Schwelle
    den allgemeinen Aktien-News-Feed?
 3. (Fast) alle News zu einer Portfolio-Position       -> company -> organization -> article_organization
