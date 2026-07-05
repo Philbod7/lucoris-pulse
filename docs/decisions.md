@@ -60,3 +60,24 @@ Migration = ein Commit, grünes mvn verify Pflicht. -> Kein Auto-Generieren; Fly
 GDELT liefert Metadaten/URLs, nicht Volltext; Premium-Presse gesperrt/paywalled; §44b-Pflichten.
 -> GDELT für Selektion/Signifikanz, Primär-/Institutionsquellen für Inhalt; Allowlist mit
 robots/TDM-Prüfung (konservative Regel) und Beweislast-Logging.
+
+## 13. Spring Boot 4 Modularisierung — Abhängigkeiten & Build (bei Grundgerüst festgestellt)
+SB 4 (verwendet: 4.1.0, Hibernate ORM 7.4.1, JPA 3.2) hat die monolithische
+`spring-boot-autoconfigure` in technologie-spezifische Module aufgetrennt; die 4.1-BOM zieht
+zudem Testcontainers 2.x. -> Konkret nötige Abweichungen vom „klassischen" SB-3-Setup:
+- **`spring-boot-starter-webmvc`** statt `spring-boot-starter-web` (REST-API immer aktiv; das alte
+  Starter-Artefakt existiert nur noch als deprecated „classic starter").
+- **`spring-boot-flyway`** als explizite Abhängigkeit — die Flyway-Autokonfiguration ist NICHT mehr
+  in `spring-boot-autoconfigure`; ohne dieses Modul läuft die Migration beim Start stillschweigend
+  gar nicht (Schema bleibt leer). `flyway-database-postgresql` bleibt separat, `flyway-core` kommt
+  transitiv.
+- **Testcontainers 2.x**: Modul-Artefakte heißen jetzt `testcontainers-postgresql` und
+  `testcontainers-junit-jupiter` (2.x-Namensschema, alle BOM-verwaltet, versionslos).
+- **`maven-failsafe-plugin`** explizit an `integration-test`/`verify` gebunden; sonst werden die
+  `*IT`-Integrationstests stumm übersprungen (BUILD SUCCESS ohne einen einzigen Testlauf).
+-> Begründung: Ohne diese Module baut/startet der Dienst nicht wie erwartet, die Fehler sind aber
+still (leeres Schema, nicht laufende Tests) statt laut. Konsequenz: Bei neuen SB-4-Features prüfen,
+ob ein eigenes `spring-boot-<x>`-Autoconfig-Modul nötig ist; Actuator/Data-JPA sind über ihre
+Starter bereits abgedeckt. Lokaler Testlauf (Rancher Desktop) braucht maschinenspezifische
+Env-Variablen (`DOCKER_HOST`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`) — bewusst NICHT im Repo;
+die IT-Basisklasse pollt zusätzlich den Host-Port (Rancher etabliert Port-Forwarding verzögert).
