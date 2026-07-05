@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: lucoris-pulse
+  # Virtual Threads (Java 21) global aktivieren.
+  threads:
+    virtual:
+      enabled: true
+  # Flyway besitzt das Schema; Hibernate validiert nur.
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      # Nie create/update — Flyway ist die alleinige Quelle des Schemas.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        id:
+          optimizer:
+            # Pooled-lo passt zu Sequenzen START WITH 1 / INCREMENT 50 (= allocationSize 50).
+            pooled:
+              preferred: pooled-lo
+  # Datasource NICHT im Repo: Laufzeit über Umgebungsvariablen (SPRING_DATASOURCE_*),
+  # Tests liefern die DB per Testcontainers @ServiceConnection.
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        # Liveness/Readiness immer aktiv (nicht nur in Kubernetes).
+        enabled: true
+      group:
+        readiness:
+          # Readiness inkl. DB-Check.
+          include: readinessState,db
