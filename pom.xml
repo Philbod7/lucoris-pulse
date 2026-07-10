@@ -120,6 +120,10 @@
                     <!-- -Xshare:off: der Agent haengt Klassen an den Bootstrap-Classpath, was
                          das Default-CDS deaktivieren wuerde (Warnung); explizit aus = keine Warnung. -->
                     <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+                    <!-- Ryuk-Disable via Env (nur so wirksam in Testcontainers 2.x); Detail s. Failsafe. -->
+                    <environmentVariables>
+                        <TESTCONTAINERS_RYUK_DISABLED>true</TESTCONTAINERS_RYUK_DISABLED>
+                    </environmentVariables>
                 </configuration>
             </plugin>
 
@@ -131,6 +135,15 @@
                     <!-- -Xshare:off: der Agent haengt Klassen an den Bootstrap-Classpath, was
                          das Default-CDS deaktivieren wuerde (Warnung); explizit aus = keine Warnung. -->
                     <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+                    <environmentVariables>
+                        <!-- Testcontainers 2.x liest Ryuk-Disable NUR aus dieser Env-Variable
+                             (ResourceReaper: Boolean.parseBoolean(System.getenv("TESTCONTAINERS_RYUK_DISABLED"))).
+                             Der alte Properties-Key ryuk.disabled existiert in 2.x NICHT mehr, eine
+                             -D-System-Property greift ebenfalls nicht. Ryuk scheitert auf Rancher Desktop
+                             an der verzoegerten loopback-Portweiterleitung; der JVMHook-Reaper raeumt beim
+                             JVM-Ende auf (Container werden weiterhin gestoppt). -->
+                        <TESTCONTAINERS_RYUK_DISABLED>true</TESTCONTAINERS_RYUK_DISABLED>
+                    </environmentVariables>
                 </configuration>
                 <executions>
                     <execution>
