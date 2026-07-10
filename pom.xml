@@ -77,6 +77,16 @@
             <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Kommt transitiv über spring-boot-starter-test; hier explizit deklariert, damit der
+             Build ihn als regulaeren Java-Agent laden kann (siehe -javaagent im Build). Ohne das
+             self-attacht Mockitos Inline-Mock-Maker auf JDK 21+ einen ByteBuddy-Agent dynamisch
+             (JDK-Warnung; dynamisches Agent-Laden wird kuenftig verboten). -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -85,10 +95,43 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+
+            <!-- Legt fuer jede aufgeloeste Abhaengigkeit eine Property mit dem Jar-Pfad an
+                 (z.B. ${org.mockito:mockito-core:jar}), damit Surefire/Failsafe Mockito als
+                 -javaagent laden koennen. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>resolve-agent-paths</id>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Unit-Tests (*Test): Mockito als regulaerer Agent statt dynamischem Self-Attach. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- -Xshare:off: der Agent haengt Klassen an den Bootstrap-Classpath, was
+                         das Default-CDS deaktivieren wuerde (Warnung); explizit aus = keine Warnung. -->
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+                </configuration>
+            </plugin>
+
             <!-- Integrationstests (*IT) laufen in der verify-Phase gegen echtes PostgreSQL. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <!-- -Xshare:off: der Agent haengt Klassen an den Bootstrap-Classpath, was
+                         das Default-CDS deaktivieren wuerde (Warnung); explizit aus = keine Warnung. -->
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
