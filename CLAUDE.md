@@ -71,7 +71,8 @@ Arbeitsanweisung; bei Konflikt gilt sie.
 - OCI-Image bauen:           `mvn spring-boot:build-image`
 
 ## Arbeitsweise für den Agent
-- Inkrementell: kleiner Schritt -> `mvn verify` grün -> Commit. Nie mehrere unverifizierte
-  Änderungen bündeln.
+- Inkrementell: kleiner Schritt -> `mvn verify` grün -> dem Nutzer zum Commit übergeben. Claude
+  committet NIE selbst (kein `git commit`/`add`/`push`); der Nutzer committet alles — siehe globale
+  Regel in `~/.claude/CLAUDE.md`. Nie mehrere unverifizierte Änderungen bündeln.
 - Bei jeder schema-relevanten Änderung `docs/data-model.md` und `docs/decisions.md` aktualisieren.
 - Details, die hier nicht stehen, stehen in `docs/`. Erst dort nachsehen, dann fragen.
