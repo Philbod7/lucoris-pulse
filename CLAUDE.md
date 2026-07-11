@@ -39,9 +39,18 @@ Arbeitsanweisung; bei Konflikt gilt sie.
 
 ### Persistenz
 - JPA/Hibernate für Domäne, Resolver und REST-Read-Model.
+- Persistenz ausschließlich über Hibernate — KEINE Spring-Data-Repositories
+  (kein `JpaRepository`/`CrudRepository`). Zugriff über `EntityManager`/`StatelessSession`.
 - Firehose (Massen-Insert: article, mentions, Link-Tabellen) über Hibernate `StatelessSession`
   + JDBC-Batch — NICHT über den Persistence-Context.
 - Generierte Spalten (z.B. significance_score) lese-nur mappen (insertable/updatable=false).
+
+### Geschäftslogik & Schichtung
+- Geschäftslogik lebt in eigenständigen Usecase-POJOs (KEINE Spring-Annotationen), die von
+  dünnen `@Service`-Klassen aufgerufen werden. Services enthalten keine Logik — nur Delegation
+  und Verdrahtung. Usecases werden per Konstruktor mit Ports verdrahtet (`@Configuration`/`@Bean`).
+- Infrastruktur (HTTP, Entpacken, JDBC/StatelessSession) hinter Ports; nur Adapter sind
+  `@Component`. So bleiben Usecases und Mapper ohne Spring/Netz unit-testbar.
 
 ### Cache
 - Springs `@Cacheable` über JCache (JSR-107) mit Caffeine als Provider.

@@ -12,6 +12,23 @@
 - Primärdatensatz für Lucoris: GKG (V2Themes, V2Tone, V2Organizations, DocumentIdentifier).
   Events/Mentions nur für die Ereignis-Klammer (global_event_id).
 
+## Marktrelevanz-Filter (Ingest)
+- Ziel: DB-Menge klein halten — nur marktrelevante Artikel werden gespeichert. Der Filter greift
+  NACH dem Parsen der GKG-Datei und VOR dem Schreiben; nicht relevante Artikel werden verworfen,
+  bevor irgendeine Entität geschrieben wird.
+- Regel: Ein GKG-Artikel ist relevant, wenn seine V2Themes mit dem Marktrelevanz-Set einen
+  nicht-leeren Schnitt bilden. Das Set steht in `application.yml`
+  (`lucoris.ingest.gdelt.market-relevant-theme-prefixes`); Einträge wirken als Präfix
+  (`ECON_` deckt die ganze Familie ab). Vorschlag (Wirtschaft/Politik): `ECON_`, `EPU_`.
+- Der Filter ist GKG-scoped (nur GKG trägt Themen). Events/Mentions werden derzeit ungefiltert
+  geschrieben — eine spätere Kopplung an die relevanten Artikel liefe über die URL-Brücke
+  (`mention_identifier = document_identifier`) bzw. `global_event_id`.
+- Statistik: je GKG-File wird geloggt, wie viele Artikel geparst, wie viele als marktrelevant
+  behalten und wie viele verworfen wurden. Zusätzlich wird am Ende eines Tageslaufs eine
+  aggregierte Themen-Statistik über ALLE vorgekommenen Codes geloggt (Häufigkeit + Markierung, ob
+  bereits marktrelevant) — Diagnose zum Kuratieren des Sets, abschaltbar über
+  `lucoris.ingest.gdelt.log-theme-histogram`.
+
 ## Dedup & Idempotenz
 - ingest_log(filename PK, md5, ...) verhindert Doppelverarbeitung; GDELT republisht Slices
   gelegentlich -> zuletzt verarbeiteten Dateinamen tracken, md5 verifizieren.

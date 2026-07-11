@@ -81,3 +81,24 @@ ob ein eigenes `spring-boot-<x>`-Autoconfig-Modul nötig ist; Actuator/Data-JPA 
 Starter bereits abgedeckt. Lokaler Testlauf (Rancher Desktop) braucht maschinenspezifische
 Env-Variablen (`DOCKER_HOST`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`) — bewusst NICHT im Repo;
 die IT-Basisklasse pollt zusätzlich den Host-Port (Rancher etabliert Port-Forwarding verzögert).
+
+## 14. Usecase-POJOs + Hibernate ohne Spring-Data-Repositories
+Geschäftslogik soll ohne Spring/Netz testbar und klar von Infrastruktur getrennt sein; der
+Firehose-Pfad braucht ohnehin `StatelessSession` statt Repository-Abstraktion. -> Persistenz
+ausschließlich über Hibernate (`EntityManager`/`StatelessSession`), KEINE Spring-Data-Repositories.
+Geschäftslogik in eigenständigen Usecase-POJOs (annotationsfrei), die von dünnen `@Service`-
+Fassaden aufgerufen werden; Infrastruktur (HTTP/Entpacken/JDBC) hinter Ports, nur Adapter sind
+`@Component`. -> Usecases + Mapper sind reine POJOs -> deterministische Unit-Tests ohne Container;
+Services bleiben triviale Delegatoren; der `@Scheduled`-Poller kann später denselben Service nutzen.
+Erstanwendung: GDELT-Ingest (`com.lucoris.pulse.ingest`).
+
+## 15. Marktrelevanz-Filter beim Ingest (GKG-Themen)
+GDELT liefert weit mehr Artikel als für ein Markt-/Finanz-News-System nutzbar; die DB soll klein
+und relevant bleiben. -> Ein Filter greift NACH dem Parsen der GKG-Datei und VOR dem Schreiben:
+ein Artikel wird nur gespeichert, wenn seine V2Themes einen nicht-leeren Schnitt mit dem
+Marktrelevanz-Set haben (Präfix-Match, Set in `application.yml`; Vorschlag Wirtschaft/Politik:
+`ECON_`, `EPU_`). -> Nicht relevante Artikel werden verworfen, bevor irgendeine Entität entsteht;
+je File wird eine Statistik (geparst/behalten/verworfen) geloggt. Der Filter ist GKG-scoped
+(nur GKG trägt Themen); Events/Mentions bleiben vorerst ungefiltert (spätere Kopplung über die
+URL-Brücke bzw. `global_event_id` möglich). Logik im POJO `MarketRelevanceFilter`, aufgerufen
+vom Usecase (siehe ADR 14).

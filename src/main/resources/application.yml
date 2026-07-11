@@ -15,6 +15,9 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        jdbc:
+          # Firehose-Massen-Insert (StatelessSession): JDBC-Batching aktiv halten.
+          batch_size: 500
         id:
           optimizer:
             # Pooled-lo passt zu Sequenzen START WITH 1 / INCREMENT 50 (= allocationSize 50).
@@ -37,3 +40,19 @@ management:
         readiness:
           # Readiness inkl. DB-Check.
           include: readinessState,db
+
+# Ingest-Konfiguration (nur unter Profil `ingest` gebunden).
+lucoris:
+  ingest:
+    gdelt:
+      # Marktrelevanz-Filter: Ein GKG-Artikel wird nur gespeichert, wenn mindestens eine seiner
+      # GKG-Themen mit einem dieser Präfixe beginnt (Wirtschaft/Politik). Alles andere wird VOR
+      # dem Schreiben verworfen — hält die DB-Menge klein. Einträge wirken als Präfix (ECON_ =
+      # ganze Familie). Weitere Kandidaten bei Bedarf ergänzen, z.B.: WB_ (Weltbank-Themen),
+      # TAX_FNCACT_* / TAX_ECON_*, LEGISLATION, ELECTION, TRIAL, CORRUPTION, SANCTIONS.
+      market-relevant-theme-prefixes:
+        - ECON_
+        - EPU_
+      # Diagnose: am Ende eines Tageslaufs ALLE vorgekommenen GKG-Themen-Codes mit Häufigkeit
+      # und Marktrelevanz-Markierung loggen (hilft, das Set oben zu kuratieren). Später abschaltbar.
+      log-theme-histogram: true

@@ -12,6 +12,20 @@ Dieses Dokument erklärt Aufbau und Begründung. Bei Änderungen: hier UND in `d
 - D AUFLÖSUNG: company (verweist auf organization), portfolio, portfolio_holding.
 - E SIGNAL:   event_significance, theme_volume_daily.
 
+## Die drei GDELT-Rohdatensätze (Schicht A)
+GDELT (Global Database of Events, Language, and Tone) liefert je 15-Min-Slice drei Dateien:
+- EVENTS (gdelt_events): ereignis-zentriert. Ein CAMEO-kodiertes Akteur–Aktion–Akteur-Ereignis je
+  Zeile, global eindeutig über global_event_id. Beantwortet „WAS ist passiert".
+- MENTIONS (gdelt_mentions): je Erwähnung eines Events in einem Artikel eine Zeile (Event 1:N),
+  verbindet Ereignis und Artikel-URL (mention_identifier).
+- GKG (gdelt_gkg): GKG = "Global Knowledge Graph". ARTIKEL-/dokument-zentriert — eine Zeile je von
+  GDELT verarbeitetem Artikel (gkg_record_id, Quelle, document_identifier = URL). Beantwortet
+  „WORUM geht es im Artikel": extrahierte Themen (V2Themes), Personen, Organisationen, Orte, Tonwert
+  und Namen als semikolon-getrennte Rohlisten. KEINE global_event_id (nicht ereignisgebunden).
+  Primärdatensatz für Lucoris: die Themen steuern Marktrelevanz-Filter und Entitäts-Auflösung; die
+  Rohlisten leben nur hier und werden beim Ingest in Schicht C aufgelöst. Brücke zur Ereignis-Welt
+  über die URL (mentions.mention_identifier = gkg.document_identifier).
+
 ## Die vier Entitätstypen (unterschiedliche Kanonizität — Kernentscheidung)
 - THEMA:  GDELT-Themencode ist bereits kanonisch -> theme.theme_code als PK, kein Resolver.
 - ORT:    geokodiert (FeatureID/FIPS/ADM1/LatLong) -> Auflösung beim Ingest über Geo-Felder.
