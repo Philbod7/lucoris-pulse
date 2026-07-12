@@ -10,6 +10,7 @@ import com.lucoris.pulse.ingest.gdelt.MissingEventRef;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,8 +31,11 @@ class FirehoseStoreEventQueryIT extends AbstractPostgresIT {
     @Autowired FirehoseStore store;
     @Autowired JdbcTemplate jdbc;
 
+    @BeforeEach
     @AfterEach
     void truncate() {
+        // Vor UND nach dem Test aufräumen: der Postgres-Container ist über alle IT geteilt und der
+        // StatelessSession-Firehose committet außerhalb von Springs Rollback.
         jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log CASCADE");
     }
 

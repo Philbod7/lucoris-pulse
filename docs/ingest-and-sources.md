@@ -100,6 +100,9 @@ gezielt aus seinem `eventTimeDate`-Slice nachgeladen, statt es im Vorwärts-Stre
   Constraint-Verletzung auf dem natürlichen GKG-PK). Das macht Läufe wiederhol-/fortsetzbar.
 - `md5` wird derzeit nicht befüllt (Feld für spätere Republish-/Integritätsprüfung). Bei deaktivierter
   Kopplung wird analog die Events-Datei vermerkt und übersprungen.
+- Jede ausgelassene Datei/Slice wird pro Fall im Log vermerkt (INFO): „bereits eingelesen
+  (ingest_log)" bzw. „fehlt/nicht abrufbar — ausgelassen". Die Endzusammenfassung führt zusätzlich
+  die Zähler `bereitsEingelesen` und `übersprungeneSlices`.
 
 ## Auflösung pro Entitätstyp (Ingest)
 - THEMA:  Code splitten -> UPSERT theme -> article_theme (FK = Code).
