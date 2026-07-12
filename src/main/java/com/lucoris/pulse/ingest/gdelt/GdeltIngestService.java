@@ -27,6 +27,14 @@ public class GdeltIngestService {
         return usecase.ingestDay(dayUtc);
     }
 
+    /**
+     * Ruft den halboffenen UTC-Bereich {@code [von, bis)} tageweise ab — {@code von} inklusive,
+     * {@code bis} exklusive. {@code bis=null} liest genau den einen Tag {@code von} vollständig.
+     */
+    public RangeIngestReport ingestRange(LocalDate vonUtcInclusive, LocalDate bisUtcExclusive) {
+        return usecase.ingestRange(vonUtcInclusive, bisUtcExclusive);
+    }
+
     /** Ruft den Vortag (relativ zur UTC-Uhr) ab. */
     public DayIngestReport ingestYesterday() {
         return usecase.ingestDay(LocalDate.now(clock).minusDays(1));

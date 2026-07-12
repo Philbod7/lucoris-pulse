@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -126,6 +127,37 @@ public final class IngestGdeltDayUsecase {
         if (logThemeHistogram) {
             logThemeHistogram(dayUtc, histogram);
         }
+        return report;
+    }
+
+    /**
+     * Liest den halboffenen UTC-Datumsbereich {@code [von, bis)} tageweise ein — {@code von}
+     * inklusive, {@code bis} exklusive (Iteration mit {@code <}). Jeder Tag wird über
+     * {@link #ingestDay(LocalDate)} vollständig und idempotent verarbeitet.
+     *
+     * @param vonUtcInclusive erster einzulesender Tag (inklusive, UTC-Kalendertag); nicht {@code null}
+     * @param bisUtcExclusive exklusive Obergrenze (UTC-Kalendertag); {@code null} liest genau den
+     *                        einen Tag {@code von} vollständig ({@code bis = von + 1 Tag})
+     * @return Aggregat mit Tages-Reports und Gesamtsummen über den Bereich
+     * @throws NullPointerException     wenn {@code von} {@code null} ist
+     * @throws IllegalArgumentException wenn {@code bis} nicht nach {@code von} liegt
+     */
+    public RangeIngestReport ingestRange(LocalDate vonUtcInclusive, LocalDate bisUtcExclusive) {
+        Objects.requireNonNull(vonUtcInclusive, "von darf nicht null sein");
+        LocalDate bis = (bisUtcExclusive == null) ? vonUtcInclusive.plusDays(1) : bisUtcExclusive;
+        if (!bis.isAfter(vonUtcInclusive)) {
+            throw new IllegalArgumentException(
+                    "bis muss nach von liegen (exklusive Obergrenze): von="
+                            + vonUtcInclusive + ", bis=" + bis);
+        }
+        List<DayIngestReport> days = new ArrayList<>();
+        for (LocalDate d = vonUtcInclusive; d.isBefore(bis); d = d.plusDays(1)) {
+            days.add(ingestDay(d));
+        }
+        RangeIngestReport report = new RangeIngestReport(vonUtcInclusive, bis, days);
+        log.info(
+                "GDELT-Bereichsabruf {}..{} (exkl.) abgeschlossen: {} Tag(e), events={}, mentions={}, gkg={}",
+                vonUtcInclusive, bis, report.dayCount(), report.events(), report.mentions(), report.gkg());
         return report;
     }
 
