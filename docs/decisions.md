@@ -139,3 +139,27 @@ idempotent). -> Läufe sind wiederhol-/fortsetzbar ohne Doppelspeicherung; der V
 bei committeten Daten (atomar). `processed_at` setzt die DB (`DEFAULT now()`, Entity
 `insertable=false`); `md5` bleibt vorerst leer (spätere Republish-/Integritätsprüfung). Ein
 fehlender Slice (404) wird nicht vermerkt (Retry in späterem Lauf möglich).
+
+## 19. URL-Index (url_index) — append-only, ohne Primary Key
+Lucoris bekommt (z.B. von Perplexity) eine Quell-URL; darf sie wegen robots.txt/TDM-Vorbehalt
+nicht gelesen werden, braucht Lucoris ANDERE Artikel zum selben Ereignis (Fact-Check über
+alternative Quellen). Die URL-Spalten liegen verstreut über `gdelt_events.source_url`,
+`gdelt_mentions.mention_identifier`, `gdelt_gkg.document_identifier`. -> Eine flache Tabelle
+`url_index (global_event_id, url, source_flag)` mit je einem btree-Index auf `global_event_id`
+und `url` macht den Pivot „URL → global_event_id → alle anderen URLs des Events" zu einem
+indexgestützten Zugriff. Befüllt INNERHALB der zwei bestehenden Ingest-Transaktionen (keine dritte):
+die Events-Transaktion schreibt Primär-Zeilen (`'P'`, aus `source_url`), die Slice-Transaktion
+Sekundär-Zeilen (`'S'`). -> Weil `gdelt_gkg` KEINE `global_event_id` trägt, kommen die S-Zeilen aus
+den Mentions (`mention_identifier` + echte `global_event_id`) — im Kopplungsmodus sind das genau
+die marktrelevanten GKG-Artikel-URLs, nur mit Event-ID; `global_event_id` bleibt so `NOT NULL`.
+Die Tabelle hat BEWUSST keinen Primary Key / kein Unique: Dubletten sind erlaubt (Performance —
+keine Konfliktprüfung/Dedup-Kosten am Firehose, kein `ON CONFLICT`, kein Batch-Rollback). Hibernate
+verlangt für `StatelessSession.insert` zwar ein `@Id`; das erfüllt ein zusammengesetzter, nur
+mapping-seitiger `@IdClass` über die drei Spalten (assigned, kein Surrogat/keine Sequence). Da
+`session.insert` keine Identity-Map hat und kein SELECT-before-insert macht und die Tabelle keinen
+Unique/PK trägt, entstehen bei gleichen Werten schlicht mehrere Zeilen; Konsumenten deduplizieren
+per `DISTINCT`. `source_flag char(1)`, erweiterbar (aktuell nur P/S). Konsequenz/Trade-off:
+Nicht partitioniert, append-only -> unbegrenztes Wachstum (~ Anzahl Mentions + Events); spätere
+Partitionierung oder ein Dedup-/Housekeeping-Job bleiben Option. `insertEvents` wird produktiv
+nicht mehr genutzt (Events-Schreiben läuft jetzt über `insertAtomic`, damit die P-Zeilen atomar
+mit den Events committen), bleibt aber Teil des Firehose-Ports.

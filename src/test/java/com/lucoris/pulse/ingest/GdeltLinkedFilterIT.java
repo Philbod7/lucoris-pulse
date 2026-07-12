@@ -7,6 +7,7 @@ import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
 import com.lucoris.pulse.core.domain.IngestLog;
+import com.lucoris.pulse.core.domain.UrlIndex;
 import com.lucoris.pulse.ingest.gdelt.DayIngestReport;
 import com.lucoris.pulse.ingest.gdelt.FirehoseStore;
 import com.lucoris.pulse.ingest.gdelt.GdeltDataset;
@@ -91,6 +92,18 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
         GdeltEvent stub = store.events.stream().filter(e -> e.getGlobalEventId() == 777L).findFirst().orElseThrow();
         assertThat(stub.getSourceUrl()).isNull();
         assertThat(stub.getDateAdded()).isEqualTo(S_MISSING.toInstant(ZoneOffset.UTC));
+
+        // URL-Index: S-Zeilen aus den gekoppelten Mentions (URL_REL, mit echter global_event_id),
+        // P-Zeilen aus Events mit source_url (Stub 777 hat null source_url -> keine P-Zeile).
+        assertThat(store.urlIndex).hasSize(5);
+        assertThat(store.urlIndex).filteredOn(u -> u.getSourceFlag().equals("S"))
+                .extracting(UrlIndex::getGlobalEventId)
+                .containsExactlyInAnyOrder(100L, 900L, 777L);
+        assertThat(store.urlIndex).filteredOn(u -> u.getSourceFlag().equals("S"))
+                .extracting(UrlIndex::getUrl).containsOnly(URL_REL);
+        assertThat(store.urlIndex).filteredOn(u -> u.getSourceFlag().equals("P"))
+                .extracting(UrlIndex::getGlobalEventId)
+                .containsExactlyInAnyOrder(100L, 900L); // 777 (Stub, source_url null) fehlt
 
         assertThat(report.events()).isEqualTo(3);
         assertThat(report.eventsBackfilled()).isEqualTo(1);   // 900
@@ -221,12 +234,14 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
         final List<GdeltEvent> events = new ArrayList<>();
         final List<GdeltMention> mentions = new ArrayList<>();
         final List<GdeltGkg> gkg = new ArrayList<>();
+        final List<UrlIndex> urlIndex = new ArrayList<>();
         final Set<String> processedFiles = new HashSet<>();
 
         void clear() {
             events.clear();
             mentions.clear();
             gkg.clear();
+            urlIndex.clear();
             processedFiles.clear();
         }
 
@@ -257,6 +272,8 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
                     mentions.add(m);
                 } else if (row instanceof GdeltEvent e) {
                     events.add(e);
+                } else if (row instanceof UrlIndex u) {
+                    urlIndex.add(u);
                 } else if (row instanceof IngestLog logEntry) {
                     processedFiles.add(logEntry.getFilename());
                 }

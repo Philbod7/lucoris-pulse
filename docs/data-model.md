@@ -27,11 +27,11 @@ GDELT (Global Database of Events, Language, and Tone) liefert je 15-Min-Slice dr
   über die URL (mentions.mention_identifier = gkg.document_identifier).
 
 ## Klassendiagramm: beim Ingest geschriebene Entities
-Beim Einlesen schreibt der Firehose ausschließlich die drei Roh-Entities der Schicht A
-(`GdeltEvent`, `GdeltMention`, `GdeltGkg`) plus ihre `@IdClass`-Schlüsselklassen. Die aufgelösten
+Beim Einlesen schreibt der Firehose die drei Roh-Entities der Schicht A (`GdeltEvent`,
+`GdeltMention`, `GdeltGkg`) plus ihre `@IdClass`-Schlüsselklassen, den Dedup-Ledger `IngestLog`
+(siehe ADR 18) und den `UrlIndex` (URL↔Event-Index, siehe unten und ADR 19). Die aufgelösten
 Schichten (Article, Theme, Location, Organization, Person …) werden beim Ingest NICHT geschrieben
-(kein Resolver implementiert); `IngestLog` (Dedup-Ledger) existiert, wird aber vom aktuellen Ingest
-noch nicht befüllt.
+(kein Resolver implementiert).
 
 ```mermaid
 classDiagram
@@ -106,10 +106,26 @@ classDiagram
         +Instant seenDate
     }
 
+    class UrlIndex {
+        +Long globalEventId
+        +String url
+        +String sourceFlag
+    }
+
+    class UrlIndexId {
+        <<IdClass>>
+        +Long globalEventId
+        +String url
+        +String sourceFlag
+    }
+
     GdeltEvent "1" --> "0..*" GdeltMention : global_event_id
     GdeltMention "0..*" ..> "0..1" GdeltGkg : gleiche Artikel-URL
     GdeltMention ..> MentionId : IdClass
     GdeltGkg ..> GkgId : IdClass
+    GdeltEvent "1" ..> "0..*" UrlIndex : source_url (P)
+    GdeltMention "1" ..> "0..1" UrlIndex : mention_identifier (S)
+    UrlIndex ..> UrlIndexId : IdClass
 ```
 
 Schlüssel & Verknüpfungen (Legende zum Diagramm):
@@ -157,3 +173,26 @@ Die Gewichte sind tunebar — das ist die editoriale Logik ("Zusammenhänge erke
 KEINE global_event_id (artikel-zentriert, verbunden über gemeinsame Themen/Entitäten). Brücke:
 mentions.mention_identifier = gkg.document_identifier (URL). Dedup nicht nur über ID (GDELT hat
 ~20% Redundanz) — near-duplicate Events zusätzlich zusammenführen.
+
+## URL-Index (url_index) — Fact-Check über alternative Quellen
+Zweck: Lucoris bekommt (z.B. von Perplexity) eine Quell-URL; darf sie wegen robots.txt/TDM-
+Vorbehalt nicht gelesen werden, sollen ANDERE Artikel zum selben Ereignis gefunden werden
+(alternative, lesbare Quellen). Dafür bündelt `url_index` die über drei Tabellen verstreuten
+URL↔Event-Bezüge in einer flachen Tabelle `(global_event_id, url, source_flag)` mit je einem
+btree-Index auf `global_event_id` und `url`. Der Pivot ist damit ein indexgestützter Self-Join:
+```sql
+SELECT u2.url, u2.source_flag
+FROM url_index u1
+JOIN url_index u2 USING (global_event_id)
+WHERE u1.url = :url AND u2.url <> u1.url;
+```
+- `source_flag` (char(1), erweiterbar): `'P'` = primär (`gdelt_events.source_url`, eine repräsentative
+  URL je Event), `'S'` = sekundär (`gdelt_mentions.mention_identifier`, korroborierende Artikel).
+- Die S-Zeilen kommen aus den Mentions (nicht aus GKG — GKG hat keine `global_event_id`); im
+  Kopplungsmodus sind das genau die marktrelevanten GKG-Artikel-URLs, nur mit Event-ID.
+- Befüllt innerhalb der zwei bestehenden Ingest-Transaktionen: Slice-Transaktion → S, Events-
+  Transaktion → P (Stub-Events ohne `source_url` liefern keine P-Zeile).
+- BEWUSST ohne Primary Key / Unique: Dubletten erlaubt (append-only, keine Dedup-Kosten am
+  Firehose). Der `@IdClass(UrlIndexId)` über die drei Spalten ist nur mapping-seitige Identität
+  für `StatelessSession.insert`, erzwingt DB-seitig KEINE Eindeutigkeit. Konsumenten dedupen per
+  `DISTINCT`. Nicht partitioniert. Details/Trade-offs: ADR 19.

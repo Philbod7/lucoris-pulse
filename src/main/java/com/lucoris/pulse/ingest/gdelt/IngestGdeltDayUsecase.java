@@ -4,6 +4,7 @@ import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
 import com.lucoris.pulse.core.domain.IngestLog;
+import com.lucoris.pulse.core.domain.UrlIndex;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -46,6 +47,10 @@ public final class IngestGdeltDayUsecase {
     private static final int SLICES_PER_DAY = 96;
     private static final int SLICE_MINUTES = 15;
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    /** URL-Index-Flag: primäre Quelle (Event.source_url). */
+    private static final String SOURCE_PRIMARY = "P";
+    /** URL-Index-Flag: sekundäre Quelle (Mention.mention_identifier). */
+    private static final String SOURCE_SECONDARY = "S";
 
     private final GdeltSliceClient client;
     private final FirehoseStore store;
@@ -178,10 +183,16 @@ public final class IngestGdeltDayUsecase {
                     GdeltDataset.MENTIONS.filename(stamp));
         }
 
-        // Atomar: GKG + Mentions + ingest_log(gkg) + ingest_log(mentions) in EINER Transaktion.
-        List<Object> batch = new ArrayList<>(relevantGkg.size() + keptMentions.size() + 2);
+        // Atomar: GKG + Mentions + url_index(S) + ingest_log(gkg) + ingest_log(mentions) in EINER Tx.
+        List<Object> batch = new ArrayList<>(relevantGkg.size() + keptMentions.size() * 2 + 2);
         batch.addAll(relevantGkg);
         batch.addAll(keptMentions);
+        // Sekundär-Zeilen des URL-Index: Mentions tragen URL UND global_event_id (GKG hätte keine).
+        for (GdeltMention mention : keptMentions) {
+            if (mention.getMentionIdentifier() != null && mention.getGlobalEventId() != null) {
+                batch.add(urlIndexRow(mention.getGlobalEventId(), mention.getMentionIdentifier(), SOURCE_SECONDARY));
+            }
+        }
         batch.add(ingestLogEntry(gkgFile, GdeltDataset.GKG, relevantGkg.size()));
         batch.add(ingestLogEntry(GdeltDataset.MENTIONS.filename(stamp), GdeltDataset.MENTIONS, keptMentions.size()));
         store.insertAtomic(batch);
@@ -234,7 +245,12 @@ public final class IngestGdeltDayUsecase {
                 }
             }
         }
-        int written = store.insertEvents(toWrite);
+        // Atomar: Events + Primär-Zeilen des URL-Index (Event.source_url) in EINER Transaktion.
+        List<Object> batch = new ArrayList<>(toWrite.size() * 2);
+        batch.addAll(toWrite);
+        addPrimaryUrlIndexRows(batch, toWrite);
+        store.insertAtomic(batch);
+        int written = toWrite.size(); // nur Events zählen, NICHT die url_index-Zeilen
         log.info("Events-Slice {}: {} referenziert & fehlend -> {} geschrieben", stamp(slice), missing.size(), written);
         return written;
     }
@@ -257,8 +273,9 @@ public final class IngestGdeltDayUsecase {
             return 0;
         }
         List<GdeltEvent> parsed = mapRows(raw.get(), eventMapper::map, counters);
-        List<Object> batch = new ArrayList<>(parsed.size() + 1);
+        List<Object> batch = new ArrayList<>(parsed.size() * 2 + 1);
         batch.addAll(parsed);
+        addPrimaryUrlIndexRows(batch, parsed); // Primär-Zeilen des URL-Index (Event.source_url)
         batch.add(ingestLogEntry(eventsFile, GdeltDataset.EVENTS, parsed.size()));
         store.insertAtomic(batch);
         return parsed.size();
@@ -298,6 +315,23 @@ public final class IngestGdeltDayUsecase {
         stub.setGlobalEventId(globalEventId);
         stub.setDateAdded(eventTimeDate);
         return stub;
+    }
+
+    /**
+     * Hängt Primär-Zeilen des URL-Index an den Batch: je Event mit gesetzter {@code source_url}
+     * eine {@code 'P'}-Zeile. Stubs haben {@code null} source_url und werden übersprungen.
+     */
+    private static void addPrimaryUrlIndexRows(List<Object> batch, List<GdeltEvent> events) {
+        for (GdeltEvent event : events) {
+            if (event.getSourceUrl() != null && event.getGlobalEventId() != null) {
+                batch.add(urlIndexRow(event.getGlobalEventId(), event.getSourceUrl(), SOURCE_PRIMARY));
+            }
+        }
+    }
+
+    /** Eine URL-Index-Zeile (append-only, ohne PK — Dubletten sind erlaubt). */
+    private static UrlIndex urlIndexRow(Long globalEventId, String url, String sourceFlag) {
+        return new UrlIndex(globalEventId, url, sourceFlag);
     }
 
     /** {@code ingest_log}-Eintrag; {@code processed_at} setzt die DB (Default {@code now()}). */
