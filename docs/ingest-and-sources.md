@@ -20,14 +20,68 @@
   nicht-leeren Schnitt bilden. Das Set steht in `application.yml`
   (`lucoris.ingest.gdelt.market-relevant-theme-prefixes`); Einträge wirken als Präfix
   (`ECON_` deckt die ganze Familie ab). Vorschlag (Wirtschaft/Politik): `ECON_`, `EPU_`.
-- Der Filter ist GKG-scoped (nur GKG trägt Themen). Events/Mentions werden derzeit ungefiltert
-  geschrieben — eine spätere Kopplung an die relevanten Artikel liefe über die URL-Brücke
-  (`mention_identifier = document_identifier`) bzw. `global_event_id`.
+- Der Theme-Filter greift auf GKG (nur GKG trägt Themen). Events/Mentions werden daran GEKOPPELT
+  (`lucoris.ingest.gdelt.filter-linked-events-and-mentions`, Default an): pro Slice läuft die
+  Reihenfolge GKG → Mentions → Events; eine Mention bleibt nur, wenn ihr `mention_identifier` auf
+  einen behaltenen Artikel zeigt (`= document_identifier`), ein Event nur, wenn seine
+  `global_event_id` von einer behaltenen Mention referenziert wird. So kommen nicht-relevante
+  Events/Mentions gar nicht ins System. Bewusste Intra-Slice-Näherung (kein slice-übergreifender
+  Join): wenige relevante Zeilen mit Artikel/Event in einem anderen Slice fallen weg; fehlt ein
+  GKG-Slice (404), werden dessen Events/Mentions verworfen. `=false` schreibt Events/Mentions
+  ungefiltert.
 - Statistik: je GKG-File wird geloggt, wie viele Artikel geparst, wie viele als marktrelevant
   behalten und wie viele verworfen wurden. Zusätzlich wird am Ende eines Tageslaufs eine
   aggregierte Themen-Statistik über ALLE vorgekommenen Codes geloggt (Häufigkeit + Markierung, ob
   bereits marktrelevant) — Diagnose zum Kuratieren des Sets, abschaltbar über
   `lucoris.ingest.gdelt.log-theme-histogram`.
+
+## Filter-Ablauf im Detail (pro 15-Min-Slice, zwei Phasen)
+Bei aktivierter Kopplung (`filter-linked-events-and-mentions`, Default an) läuft jeder Slice in zwei
+Phasen; Events werden erst in Phase 2 geschrieben. Siehe `decisions.md` ADR 17.
+
+Phase 1 (committen):
+1. GKG laden → parsen → Marktrelevanz-Filter (Themen-Präfix-Schnitt). Behaltene Artikel werden
+   geschrieben; ihre URLs (`document_identifier`) bilden das Set `relevantUrls` DIESES Slices.
+2. Mentions laden → parsen → behalten, wenn `mention_identifier ∈ relevantUrls`. Behaltene werden
+   geschrieben UND committed (damit Phase 2 sie sieht).
+
+Phase 2 (Events auflösen):
+3. Über die committeten Mentions dieses Slices werden per SQL (`not exists` gegen `gdelt_events`,
+   eingegrenzt über `mention_time_date`) die fehlenden Events ermittelt und nach ihrem
+   Herkunfts-Slice (`eventTimeDate` = DATEADDED-Slice) gebündelt.
+4. Je Herkunfts-Slice EINMAL geladen: der aktuelle Slice wird nur einmal geholt (kein erneuter
+   Abruf); ältere Slices mit bis zu `event-backfill-retries` (Default 3) Versuchen. Die benötigten
+   Events werden herausgezogen und geschrieben.
+5. Wird ein Event in seinem Slice nicht gefunden oder ist der Slice nach den Retries nicht lesbar,
+   wird ein Stub-Event angelegt (`global_event_id` + `date_added = eventTimeDate`, keine weiteren
+   Felder). Das sichert Konsistenz, verhindert wiederholtes Suchen; ein Housekeeping-Job kann später
+   das echte Event nachladen.
+
+### Szenario: Event zuerst nicht vorhanden, später relevanter Bezug
+Frage: Ein Event wird in Slice T zunächst nicht gespeichert (der referenzierende Artikel ist noch
+nicht relevant/da); in einem späteren Slice T+k erwähnt ein relevanter Artikel dieses Event. Wird
+es dann gezogen?
+- ANTWORT: Ja. GDELT liefert jedes Event zwar nur EINMAL (im `DATEADDED`-Slice), aber jede Mention
+  trägt `eventTimeDate` = genau diesen Slice. Phase 2 lädt daraus die Export-Datei des Events und
+  schreibt es nach. Ist der Slice (auch nach Retries) nicht lesbar oder das Event nicht enthalten,
+  entsteht ein Stub-Event (später per Housekeeping ersetzbar). So bleibt keine behaltene Mention
+  ohne Event-Zeile.
+
+### Kommt ein Event „jedes Mal" in den Dateien mit?
+Nein. Events: EINMALIG (im `DATEADDED`-Slice). Mentions: bei JEDER Erwähnung eine neue Zeile (Event
+1:N über die Zeit) — der wachsende Stream. GKG: je Artikel-Dokument einmalig. Deshalb wird ein Event
+gezielt aus seinem `eventTimeDate`-Slice nachgeladen, statt es im Vorwärts-Stream zu erwarten.
+
+### Wird ein bereits vorhandenes Event aktualisiert, oder gibt es keine veränderten Daten?
+- GDELT-seitig: keine veränderten Event-Daten. Die Zähler im Event
+  (`num_mentions`/`num_sources`/`num_articles`) sind der Stand des Erst-Slices; die weitere
+  Amplifikation steckt allein im Mentions-Stream.
+- Ingest-seitig: KEIN Upsert/Update. Der Firehose schreibt reine `INSERT`s. Phase 2 fügt über die
+  `not exists`-Ermittlung nur ECHT fehlende Events ein → keine Doppel-Inserts, idempotent bei
+  Wiederholung. Ein Stub-Event bleibt bestehen, bis ein Housekeeping-Job es durch das echte ersetzt
+  (bräuchte ein gezieltes Update). Für GKG (natürlicher PK `gkg_record_id`/`seen_date`) und Mentions
+  (Surrogat-PK `mention_seq`) ist der Schutz gegen Republish/Re-Run noch offen — Datei-Dedup über
+  `ingest_log` ist vorgesehen, aber noch nicht aktiv.
 
 ## Dedup & Idempotenz
 - ingest_log(filename PK, md5, ...) verhindert Doppelverarbeitung; GDELT republisht Slices

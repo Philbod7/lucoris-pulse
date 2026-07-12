@@ -4,7 +4,9 @@ import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
 import com.lucoris.pulse.ingest.gdelt.FirehoseStore;
+import com.lucoris.pulse.ingest.gdelt.MissingEventRef;
 import jakarta.persistence.EntityManagerFactory;
+import java.time.Instant;
 import java.util.List;
 import org.hibernate.SessionFactory;
 import org.hibernate.StatelessSession;
@@ -44,6 +46,24 @@ public class StatelessSessionFirehoseStore implements FirehoseStore {
     @Override
     public int insertGkg(List<GdeltGkg> rows) {
         return insertAll(rows);
+    }
+
+    @Override
+    public List<MissingEventRef> findMissingEventRefs(Instant sliceStart, Instant sliceEndExcl) {
+        try (StatelessSession session = sessionFactory.openStatelessSession()) {
+            return session.createQuery(
+                            "select distinct new com.lucoris.pulse.ingest.gdelt.MissingEventRef("
+                                    + "m.globalEventId, m.eventTimeDate) "
+                                    + "from GdeltMention m "
+                                    + "where m.mentionTimeDate >= :start and m.mentionTimeDate < :end "
+                                    + "and m.eventTimeDate is not null "
+                                    + "and not exists (select 1 from GdeltEvent e "
+                                    + "where e.globalEventId = m.globalEventId)",
+                            MissingEventRef.class)
+                    .setParameter("start", sliceStart)
+                    .setParameter("end", sliceEndExcl)
+                    .getResultList();
+        }
     }
 
     private int insertAll(List<?> rows) {

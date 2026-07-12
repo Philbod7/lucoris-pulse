@@ -39,6 +39,8 @@ public class IngestConfig {
                 new GdeltMentionRowMapper(),
                 new GdeltGkgRowMapper(),
                 new MarketRelevanceFilter(props.getMarketRelevantThemePrefixes()),
-                props.isLogThemeHistogram());
+                props.isLogThemeHistogram(),
+                props.isFilterLinkedEventsAndMentions(),
+                props.getEventBackfillRetries());
     }
 }

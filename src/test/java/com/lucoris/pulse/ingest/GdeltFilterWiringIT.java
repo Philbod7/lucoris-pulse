@@ -11,6 +11,8 @@ import com.lucoris.pulse.ingest.gdelt.FirehoseStore;
 import com.lucoris.pulse.ingest.gdelt.GdeltDataset;
 import com.lucoris.pulse.ingest.gdelt.GdeltIngestService;
 import com.lucoris.pulse.ingest.gdelt.GdeltSliceClient;
+import com.lucoris.pulse.ingest.gdelt.MissingEventRef;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -117,6 +119,11 @@ class GdeltFilterWiringIT extends AbstractPostgresIT {
         public int insertGkg(List<GdeltGkg> rows) {
             gkgRows.addAll(rows);
             return rows.size();
+        }
+
+        @Override
+        public List<MissingEventRef> findMissingEventRefs(Instant sliceStart, Instant sliceEndExcl) {
+            return List.of(); // keine Mentions eingespeist -> nichts fehlt
         }
     }
 }

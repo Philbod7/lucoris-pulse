@@ -39,8 +39,8 @@ class GdeltLiveDayIngestIT extends AbstractPostgresIT {
     @AfterEach
     void truncate() {
         // Firehose-Commits liegen außerhalb von Springs Rollback -> explizit aufräumen.
-        // TRUNCATE der partitionierten Eltern cascaded auf die Monatspartitionen.
-        jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log");
+        // CASCADE: event_significance hat einen FK auf gdelt_events. Partitionen werden mitgeleert.
+        jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log CASCADE");
     }
 
     @Test

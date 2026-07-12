@@ -41,6 +41,20 @@ public class GdeltProperties {
      */
     private boolean logThemeHistogram = true;
 
+    /**
+     * Wenn {@code true}, werden Events und Mentions an die marktrelevanten Artikel gekoppelt: pro
+     * Slice wird nur behalten, was zu einem behaltenen GKG-Artikel gehört (Mention über die URL,
+     * Event über die {@code global_event_id} einer behaltenen Mention). Hält nicht-relevante Daten
+     * aus dem System. Intra-Slice-Näherung; abschaltbar (dann Events/Mentions ungefiltert).
+     */
+    private boolean filterLinkedEventsAndMentions = true;
+
+    /**
+     * Anzahl Leseversuche für einen älteren Export-Slice beim Event-Backfill, bevor für die
+     * fehlenden Events ein Stub angelegt wird.
+     */
+    private int eventBackfillRetries = 3;
+
     public String getBaseUrl() {
         return baseUrl;
     }
@@ -95,5 +109,21 @@ public class GdeltProperties {
 
     public void setLogThemeHistogram(boolean logThemeHistogram) {
         this.logThemeHistogram = logThemeHistogram;
+    }
+
+    public boolean isFilterLinkedEventsAndMentions() {
+        return filterLinkedEventsAndMentions;
+    }
+
+    public void setFilterLinkedEventsAndMentions(boolean filterLinkedEventsAndMentions) {
+        this.filterLinkedEventsAndMentions = filterLinkedEventsAndMentions;
+    }
+
+    public int getEventBackfillRetries() {
+        return eventBackfillRetries;
+    }
+
+    public void setEventBackfillRetries(int eventBackfillRetries) {
+        this.eventBackfillRetries = eventBackfillRetries;
     }
 }

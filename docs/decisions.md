@@ -99,6 +99,31 @@ ein Artikel wird nur gespeichert, wenn seine V2Themes einen nicht-leeren Schnitt
 Marktrelevanz-Set haben (Präfix-Match, Set in `application.yml`; Vorschlag Wirtschaft/Politik:
 `ECON_`, `EPU_`). -> Nicht relevante Artikel werden verworfen, bevor irgendeine Entität entsteht;
 je File wird eine Statistik (geparst/behalten/verworfen) geloggt. Der Filter ist GKG-scoped
-(nur GKG trägt Themen); Events/Mentions bleiben vorerst ungefiltert (spätere Kopplung über die
-URL-Brücke bzw. `global_event_id` möglich). Logik im POJO `MarketRelevanceFilter`, aufgerufen
-vom Usecase (siehe ADR 14).
+(nur GKG trägt Themen); Events/Mentions werden daran gekoppelt (siehe ADR 16). Logik im POJO
+`MarketRelevanceFilter`, aufgerufen vom Usecase (siehe ADR 14).
+
+## 16. Events/Mentions an marktrelevante Artikel koppeln
+Der Theme-Filter reduziert nur GKG; Events/Mentions (die keine Themen tragen, aber das größte
+Volumen ausmachen) sollen ebenfalls nicht mit nicht-relevanten Daten fluten. -> Kopplung am Ingest
+über die vorhandenen GDELT-Brücken, pro 15-Min-Slice in der Reihenfolge GKG → Mentions → Events:
+Mention bleibt nur bei `mention_identifier = document_identifier` eines behaltenen Artikels.
+Standardmäßig an, abschaltbar (`filter-linked-events-and-mentions`). -> Nicht-relevante Mentions
+entstehen gar nicht erst; DB bleibt klein. Bewusste Intra-Slice-Näherung für die Mention-Kopplung
+(kein slice-übergreifender Join). Die zunächst geplante Intra-Slice-Event-Filterung wurde durch die
+Zwei-Phasen-Event-Auflösung ERSETZT (ADR 17), weil GDELT jedes Event nur EINMAL liefert (im
+DATEADDED-Slice) und später relevante Events sonst fehlten. Logik im Usecase
+(`IngestGdeltDayUsecase`, siehe ADR 14).
+
+## 17. Zwei-Phasen-Event-Auflösung (statt Intra-Slice-Event-Filter)
+GDELT liefert jedes Event nur EINMAL im Events-File (im DATEADDED-Slice); spätere Erwähnungen kommen
+nur als neue Mention-Zeilen. Eine reine Intra-Slice-Kopplung verlöre Events, deren relevanter
+Artikel erst später kommt. -> Je Slice zwei Phasen: Phase 1 schreibt relevante GKG + gekoppelte
+Mentions und committet sie; Phase 2 ermittelt über diese Mentions per SQL (`not exists` gegen
+`gdelt_events`, über `mention_time_date` auf den Slice eingegrenzt) die fehlenden Events, lädt sie
+aus ihrem `eventTimeDate`-Slice (aktueller Slice nur einmal geladen; ältere gebündelt, jeder einmal,
+bis zu `event-backfill-retries` Versuche) und schreibt sie. Nicht auffindbare Events werden als Stub
+angelegt (`global_event_id` + `date_added = eventTimeDate`). -> Nach jedem Slice hat jede behaltene
+Mention ihr Event (echt oder Stub); Konsistenz auch für später relevante/ältere Events. `not exists`
+macht das Nachladen idempotent; Stubs verhindern wiederholtes Suchen und sind später per
+Housekeeping durch echte Events ersetzbar. Reads über Hibernate `StatelessSession`-HQL (kein
+Spring-Data). Details in `ingest-and-sources.md` („Filter-Ablauf im Detail").

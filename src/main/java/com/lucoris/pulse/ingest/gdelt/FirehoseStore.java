@@ -3,6 +3,7 @@ package com.lucoris.pulse.ingest.gdelt;
 import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -19,4 +20,14 @@ public interface FirehoseStore {
 
     /** @return Anzahl eingefügter Zeilen. */
     int insertGkg(List<GdeltGkg> rows);
+
+    /**
+     * Ermittelt Events, die von committeten Mentions des angegebenen Slice-Fensters referenziert
+     * werden, aber (noch) nicht in {@code gdelt_events} existieren.
+     *
+     * @param sliceStart    Fensterbeginn (inklusive) über {@code mention_time_date}
+     * @param sliceEndExcl  Fensterende (exklusive)
+     * @return distinkte (globalEventId, eventTimeDate) der fehlenden Events
+     */
+    List<MissingEventRef> findMissingEventRefs(Instant sliceStart, Instant sliceEndExcl);
 }

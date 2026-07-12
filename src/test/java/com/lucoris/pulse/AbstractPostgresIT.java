@@ -3,6 +3,7 @@ package com.lucoris.pulse;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.time.Duration;
+import java.util.List;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -20,14 +21,25 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * (z.&nbsp;B. Rancher Desktop) etablieren das Port-Forwarding auf den Host erst wenige Sekunden
  * nach Container-Start. Ohne dieses Warten verbindet sich Spring zu früh und läuft in
  * "Connection refused". Auf Standard-Docker kehrt die Prüfung sofort zurück (unschädlich).
+ *
+ * <p><b>DBeaver-Zugriff:</b> Der Container ist an den <b>festen</b> Host-Port {@code 5433}
+ * gebunden und mit {@code withReuse(true)} als wiederverwendbar markiert. So verbindet sich
+ * DBeaver stets gegen {@code localhost:5433} (DB/User/Passwort je {@code test} — Defaults von
+ * {@code PostgreSQLContainer}), und derselbe Container samt Schema/Daten überlebt den Testlauf
+ * (Reuse-Container sind von Ryuk und vom JVM-Shutdown-Hook ausgenommen). Reuse ist opt-in pro
+ * Maschine — einmalig {@code echo 'testcontainers.reuse.enable=true' >> ~/.testcontainers.properties};
+ * ohne diese Datei wird {@code withReuse} ignoriert und der Container am JVM-Ende gestoppt.
  */
 @SpringBootTest
 public abstract class AbstractPostgresIT {
 
     @ServiceConnection
-    protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17");
+    protected static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:17").withReuse(true);
 
     static {
+        // Fester Host-Port statt Zufallsport: stabile DBeaver-Verbindung gegen localhost:5433.
+        POSTGRES.setPortBindings(List.of("5433:5432"));
         POSTGRES.start();
         awaitHostPortReachable(POSTGRES.getHost(), POSTGRES.getFirstMappedPort(), Duration.ofSeconds(60));
     }

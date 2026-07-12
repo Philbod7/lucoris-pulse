@@ -56,3 +56,9 @@ lucoris:
       # Diagnose: am Ende eines Tageslaufs ALLE vorgekommenen GKG-Themen-Codes mit Häufigkeit
       # und Marktrelevanz-Markierung loggen (hilft, das Set oben zu kuratieren). Später abschaltbar.
       log-theme-histogram: true
+      # Events/Mentions an die marktrelevanten Artikel koppeln: pro Slice nur behalten, was zu einem
+      # behaltenen GKG-Artikel gehört (Mention über URL, Event über global_event_id einer behaltenen
+      # Mention). Hält nicht-relevante Daten raus (Intra-Slice-Näherung). false = ungefiltert.
+      filter-linked-events-and-mentions: true
+      # Event-Backfill: Leseversuche je älterem Export-Slice, bevor ein Stub-Event angelegt wird.
+      event-backfill-retries: 3

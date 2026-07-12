@@ -26,6 +26,101 @@ GDELT (Global Database of Events, Language, and Tone) liefert je 15-Min-Slice dr
   Rohlisten leben nur hier und werden beim Ingest in Schicht C aufgelöst. Brücke zur Ereignis-Welt
   über die URL (mentions.mention_identifier = gkg.document_identifier).
 
+## Klassendiagramm: beim Ingest geschriebene Entities
+Beim Einlesen schreibt der Firehose ausschließlich die drei Roh-Entities der Schicht A
+(`GdeltEvent`, `GdeltMention`, `GdeltGkg`) plus ihre `@IdClass`-Schlüsselklassen. Die aufgelösten
+Schichten (Article, Theme, Location, Organization, Person …) werden beim Ingest NICHT geschrieben
+(kein Resolver implementiert); `IngestLog` (Dedup-Ledger) existiert, wird aber vom aktuellen Ingest
+noch nicht befüllt.
+
+```mermaid
+classDiagram
+    direction LR
+
+    class GdeltEvent {
+        +Long globalEventId
+        +Instant dateAdded
+        +LocalDate day
+        +String actor1Code
+        +String actor1Name
+        +String actor1CountryCode
+        +String actor1Type1Code
+        +String actor2Code
+        +String actor2Name
+        +String actor2CountryCode
+        +String actor2Type1Code
+        +Boolean rootEvent
+        +String eventCode
+        +String eventBaseCode
+        +String eventRootCode
+        +Short quadClass
+        +BigDecimal goldsteinScale
+        +Integer numMentions
+        +Integer numSources
+        +Integer numArticles
+        +BigDecimal avgTone
+        +Short actionGeoType
+        +String actionGeoFullname
+        +String actionGeoCountryCode
+        +BigDecimal actionGeoLat
+        +BigDecimal actionGeoLong
+        +String sourceUrl
+    }
+
+    class GdeltMention {
+        +Long mentionId
+        +Instant mentionTimeDate
+        +Long globalEventId
+        +Instant eventTimeDate
+        +Short mentionType
+        +String mentionSourceName
+        +String mentionIdentifier
+        +Integer sentenceId
+        +Short confidence
+        +BigDecimal mentionDocTone
+    }
+
+    class GdeltGkg {
+        +String gkgRecordId
+        +Instant seenDate
+        +String sourceCommonName
+        +String documentIdentifier
+        +String v2Themes
+        +String v2Locations
+        +String v2Persons
+        +String v2Organizations
+        +String v2AllNames
+        +String v2Tone
+        +BigDecimal tone
+    }
+
+    class MentionId {
+        <<IdClass>>
+        +Long mentionId
+        +Instant mentionTimeDate
+    }
+
+    class GkgId {
+        <<IdClass>>
+        +String gkgRecordId
+        +Instant seenDate
+    }
+
+    GdeltEvent "1" --> "0..*" GdeltMention : global_event_id
+    GdeltMention "0..*" ..> "0..1" GdeltGkg : gleiche Artikel-URL
+    GdeltMention ..> MentionId : IdClass
+    GdeltGkg ..> GkgId : IdClass
+```
+
+Schlüssel & Verknüpfungen (Legende zum Diagramm):
+- GdeltEvent: PK = `globalEventId` (natürlich, von GDELT vergeben, KEINE Sequence); nicht partitioniert.
+- GdeltMention: PK = (`mentionId`, `mentionTimeDate`); `mentionId` aus `mention_seq`,
+  `mentionTimeDate` = Partitionsschlüssel; `@IdClass(MentionId)`.
+- GdeltGkg: PK = (`gkgRecordId`, `seenDate`); `seenDate` = Partitionsschlüssel; `@IdClass(GkgId)`.
+- Die Verknüpfungen sind LOGISCH (keine DB-Fremdschlüssel, unabhängig geladen): Event 1:N Mention
+  über `global_event_id`; Mention → GKG über die Artikel-URL (`mention_identifier` =
+  `document_identifier`). GKG hat KEINE `global_event_id`.
+
 ## Die vier Entitätstypen (unterschiedliche Kanonizität — Kernentscheidung)
 - THEMA:  GDELT-Themencode ist bereits kanonisch -> theme.theme_code als PK, kein Resolver.
 - ORT:    geokodiert (FeatureID/FIPS/ADM1/LatLong) -> Auflösung beim Ingest über Geo-Felder.
