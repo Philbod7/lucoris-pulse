@@ -1,0 +1,47 @@
+
+      # Marktrelevanz-Filter: Ein GKG-Artikel wird nur gespeichert, wenn mindestens eine seiner
+      # GKG-Themen mit einem dieser Präfixe beginnt (Wirtschaft/Politik). Alles andere wird VOR
+      # dem Schreiben verworfen — hält die DB-Menge klein. Einträge wirken als Präfix (ECON_ =
+      # ganze Familie). Weitere Kandidaten bei Bedarf ergänzen, z.B.: WB_ (Weltbank-Themen),
+      # TAX_FNCACT_* / TAX_ECON_*, LEGISLATION, ELECTION, TRIAL, CORRUPTION, SANCTIONS.
+      market-relevant-theme-prefixes:
+      # --- Wirtschaft / Finanzmärkte (sicher) ---
+      - ECON_STOCKMARKET
+      - ECON_INTEREST_RATE
+      - ECON_INFLATION
+      - ECON_CENTRALBANK
+      - ECON_BANKRUPTCY
+      - ECON_DEBT
+      - ECON_CURRENCY_EXCHANGE_RATE
+      - ECON_CURRENCY_RESERVES
+      - ECON_TAXATION
+      - ECON_SUBSIDIES
+      - ECON_MONOPOLY
+      - ECON_FREETRADE
+      - ECON_TRADE_DISPUTE
+      - ECON_NATIONALIZE
+      - ECON_PRICECONTROL
+      - ECON_BOYCOTT
+
+      # --- Geld-/Fiskalpolitik: schmale EPU-Unterkategorien statt EPU_POLICY ---
+      - EPU_ECONOMY
+      - EPU_ECONOMY_HISTORIC
+      - EPU_CATS_MONETARY_POLICY
+      - EPU_CATS_FISCAL_POLICY
+      - EPU_CATS_TAXES
+      - EPU_CATS_REGULATION
+      - EPU_CATS_TRADE_POLICY
+      - EPU_CATS_NATIONAL_SECURITY
+
+      # --- Energie / Rohstoffe (marktbewegend) — Schreibweise gegen Lookup prüfen ---
+      - ENV_OIL
+      - ENV_NATURALGAS
+      - ENV_COAL
+      - ENV_NUCLEARPOWER
+
+      # --- Marktbewegende Politik/Geopolitik — Schreibweise gegen Lookup prüfen ---
+      - SANCTIONS
+      - ELECTION
+      - GENERAL_GOVERNMENT
+      - LEGISLATION
+      - ARMEDCONFLICT
