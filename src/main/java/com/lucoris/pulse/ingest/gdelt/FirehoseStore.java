@@ -22,6 +22,18 @@ public interface FirehoseStore {
     int insertGkg(List<GdeltGkg> rows);
 
     /**
+     * Fügt beliebige Roh-Entities inklusive {@code IngestLog}-Einträge in EINER Transaktion ein
+     * (atomar). So landet der {@code ingest_log}-Vermerk innerhalb derselben schreibenden
+     * Transaktion wie die Nutzdaten. Für Batching die Zeilen nach Entity-Typ geordnet übergeben.
+     *
+     * @return Anzahl eingefügter Zeilen (inkl. Log-Einträge)
+     */
+    int insertAtomic(List<?> rows);
+
+    /** @return {@code true}, wenn die Datei bereits in {@code ingest_log} vermerkt ist. */
+    boolean isFileProcessed(String filename);
+
+    /**
      * Ermittelt Events, die von committeten Mentions des angegebenen Slice-Fensters referenziert
      * werden, aber (noch) nicht in {@code gdelt_events} existieren.
      *

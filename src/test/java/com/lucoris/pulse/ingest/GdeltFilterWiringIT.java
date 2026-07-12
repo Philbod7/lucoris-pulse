@@ -9,6 +9,7 @@ import com.lucoris.pulse.core.domain.GdeltMention;
 import com.lucoris.pulse.ingest.gdelt.DayIngestReport;
 import com.lucoris.pulse.ingest.gdelt.FirehoseStore;
 import com.lucoris.pulse.ingest.gdelt.GdeltDataset;
+import com.lucoris.pulse.core.domain.IngestLog;
 import com.lucoris.pulse.ingest.gdelt.GdeltIngestService;
 import com.lucoris.pulse.ingest.gdelt.GdeltSliceClient;
 import com.lucoris.pulse.ingest.gdelt.MissingEventRef;
@@ -17,8 +18,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -104,6 +107,7 @@ class GdeltFilterWiringIT extends AbstractPostgresIT {
     /** Fängt die geschriebenen GKG-Zeilen ab, statt in die DB zu schreiben. */
     static class CapturingStore implements FirehoseStore {
         final List<GdeltGkg> gkgRows = new ArrayList<>();
+        final Set<String> processedFiles = new HashSet<>();
 
         @Override
         public int insertEvents(List<GdeltEvent> rows) {
@@ -119,6 +123,23 @@ class GdeltFilterWiringIT extends AbstractPostgresIT {
         public int insertGkg(List<GdeltGkg> rows) {
             gkgRows.addAll(rows);
             return rows.size();
+        }
+
+        @Override
+        public int insertAtomic(List<?> rows) {
+            for (Object row : rows) {
+                if (row instanceof GdeltGkg g) {
+                    gkgRows.add(g);
+                } else if (row instanceof IngestLog logEntry) {
+                    processedFiles.add(logEntry.getFilename());
+                }
+            }
+            return rows.size();
+        }
+
+        @Override
+        public boolean isFileProcessed(String filename) {
+            return processedFiles.contains(filename);
         }
 
         @Override

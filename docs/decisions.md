@@ -127,3 +127,15 @@ Mention ihr Event (echt oder Stub); Konsistenz auch für später relevante/älte
 macht das Nachladen idempotent; Stubs verhindern wiederholtes Suchen und sind später per
 Housekeeping durch echte Events ersetzbar. Reads über Hibernate `StatelessSession`-HQL (kein
 Spring-Data). Details in `ingest-and-sources.md` („Filter-Ablauf im Detail").
+
+## 18. ingest_log als Slice-Dedup, transaktional mit den Nutzdaten
+Wird ein bereits eingelesener Slice erneut verarbeitet (Wiederanlauf, Überlappung), scheitern
+GKG-Inserts am natürlichen PK (Constraint-Verletzung); Mentions würden dupliziert. -> Je
+verarbeiteter Slice-Datei ein `ingest_log`-Eintrag (Dateiname als PK), der INNERHALB DERSELBEN
+Transaktion wie die Nutzdaten geschrieben wird (Phase 1 schreibt relevante GKG + gekoppelte Mentions
++ beide `ingest_log`-Einträge atomar über `insertAtomic`). Vor der Verarbeitung prüft
+`isFileProcessed(gkg-Datei)` und überspringt bereits eingelesene Slices (Phase 2 läuft weiter, ist
+idempotent). -> Läufe sind wiederhol-/fortsetzbar ohne Doppelspeicherung; der Vermerk existiert nur
+bei committeten Daten (atomar). `processed_at` setzt die DB (`DEFAULT now()`, Entity
+`insertable=false`); `md5` bleibt vorerst leer (spätere Republish-/Integritätsprüfung). Ein
+fehlender Slice (404) wird nicht vermerkt (Retry in späterem Lauf möglich).

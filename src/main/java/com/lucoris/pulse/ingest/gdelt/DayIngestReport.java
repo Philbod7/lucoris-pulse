@@ -14,6 +14,7 @@ import java.time.LocalDate;
  * @param eventBackfillSlices Anzahl älterer Export-Slices, die für den Backfill geholt wurden
  * @param mentionsFiltered   verworfene Mentions (nicht an einen relevanten Artikel gekoppelt)
  * @param gkgFiltered        als nicht marktrelevant verworfene GKG-Artikel
+ * @param slicesAlreadyProcessed laut {@code ingest_log} bereits eingelesene und übersprungene Slices
  */
 public record DayIngestReport(
         LocalDate day,
@@ -25,6 +26,7 @@ public record DayIngestReport(
         long eventBackfillSlices,
         long mentionsFiltered,
         long gkgFiltered,
+        long slicesAlreadyProcessed,
         long skippedSlices,
         long malformedRows) {
 

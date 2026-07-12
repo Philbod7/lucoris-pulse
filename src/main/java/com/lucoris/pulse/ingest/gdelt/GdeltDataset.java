@@ -37,4 +37,13 @@ public enum GdeltDataset {
         String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         return base + "/" + stamp + urlSuffix;
     }
+
+    /**
+     * GDELT-Dateiname des Slices ({@code <stamp><suffix>}) — Schlüssel für {@code ingest_log}.
+     *
+     * @param stamp 14-stelliger UTC-Zeitstempel {@code yyyyMMddHHmmss} des Slices
+     */
+    public String filename(String stamp) {
+        return stamp + urlSuffix;
+    }
 }

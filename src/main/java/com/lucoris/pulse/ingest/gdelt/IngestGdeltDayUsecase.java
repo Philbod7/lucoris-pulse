@@ -3,6 +3,7 @@ package com.lucoris.pulse.ingest.gdelt;
 import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
+import com.lucoris.pulse.core.domain.IngestLog;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -27,12 +28,13 @@ import org.slf4j.LoggerFactory;
  * <p>Je Slice läuft die Verarbeitung in ZWEI Phasen (bei aktivierter Kopplung):
  * <ol>
  *   <li><b>Phase 1</b> — relevante {@link GdeltGkg} (Themen-Filter) und daran gekoppelte
- *       {@link GdeltMention} werden geschrieben und committed. Events werden hier NICHT geschrieben.</li>
+ *       {@link GdeltMention} werden zusammen mit ihren {@code ingest_log}-Vermerken in EINER
+ *       Transaktion geschrieben. Ist der GKG-Slice laut {@code ingest_log} bereits eingelesen, wird
+ *       Phase 1 übersprungen (verhindert doppeltes Speichern / Constraint-Verletzungen).</li>
  *   <li><b>Phase 2</b> — über die committeten Mentions dieses Slices werden per SQL die fehlenden
- *       Events ermittelt und aus ihren {@code eventTimeDate}-Slices aufgelöst: der aktuelle Slice
- *       wird nur einmal geladen; ältere Slices werden gebündelt (jeder einmal, mit Retries) geholt.
- *       Nicht auffindbare Events werden als Stub angelegt (Stabilität). Erst hier werden Events
- *       geschrieben.</li>
+ *       Events ermittelt und aus ihren {@code eventTimeDate}-Slices aufgelöst (aktueller Slice nur
+ *       einmal geladen; ältere gebündelt mit Retries; nicht Auffindbares als Stub). Idempotent über
+ *       {@code not exists}.</li>
  * </ol>
  *
  * <p>Fehlende Slices (404) werden übersprungen; nicht parsebare Rohzeilen werden verworfen und
@@ -93,11 +95,9 @@ public final class IngestGdeltDayUsecase {
 
         for (int i = 0; i < SLICES_PER_DAY; i++) {
             LocalDateTime slice = dayStart.plusMinutes((long) SLICE_MINUTES * i); // 00:00 .. 23:45
-            // Phase 1: relevante GKG + gekoppelte Mentions schreiben und committen.
-            SliceGkg gkgResult = fetchFilterWriteGkg(slice, counters, histogram);
-            gkg += gkgResult.written();
-            mentions += fetchWriteMentions(slice, gkgResult.relevantUrls(), counters);
-            // Phase 2: Events auflösen (nur bei Kopplung) bzw. Fallback (alle Events vorwärts).
+            SlicePhase1 phase1 = processPhase1(slice, counters, histogram);
+            gkg += phase1.gkg();
+            mentions += phase1.mentions();
             if (filterLinkedEventsAndMentions) {
                 events += resolveSliceEvents(slice, counters);
             } else {
@@ -108,15 +108,16 @@ public final class IngestGdeltDayUsecase {
         DayIngestReport report = new DayIngestReport(
                 dayUtc, events, mentions, gkg,
                 counters.eventsBackfilled, counters.eventsStubbed, counters.eventBackfillSlices,
-                counters.mentionsFiltered, counters.gkgFiltered,
+                counters.mentionsFiltered, counters.gkgFiltered, counters.slicesAlreadyProcessed,
                 counters.skippedSlices, counters.malformedRows);
         log.info(
                 "GDELT-Tagesabruf {} abgeschlossen: events={} (ausSlice={}, backfill={}, stubs={}), "
                         + "mentions={}, gkg(marktrelevant)={}, verworfen mentions={}/gkg={}, "
-                        + "ältereSlices={}, übersprungeneSlices={}, verworfeneZeilen={}",
+                        + "bereitsEingelesen={}, ältereSlices={}, übersprungeneSlices={}, verworfeneZeilen={}",
                 dayUtc, events, counters.eventsFromCurrentSlice, counters.eventsBackfilled,
                 counters.eventsStubbed, mentions, gkg, counters.mentionsFiltered, counters.gkgFiltered,
-                counters.eventBackfillSlices, counters.skippedSlices, counters.malformedRows);
+                counters.slicesAlreadyProcessed, counters.eventBackfillSlices, counters.skippedSlices,
+                counters.malformedRows);
         if (logThemeHistogram) {
             logThemeHistogram(dayUtc, histogram);
         }
@@ -124,64 +125,70 @@ public final class IngestGdeltDayUsecase {
     }
 
     /**
-     * GKG-Slice: abrufen -> mappen -> Marktrelevanz-Filter (VOR dem Speichern) -> nur relevante
-     * Artikel schreiben. Loggt je File eine Statistik und sammelt die URLs (document_identifier)
-     * der behaltenen Artikel für die Mentions-Kopplung.
+     * Phase 1: relevante GKG + gekoppelte Mentions eines Slices zusammen mit ihren
+     * {@code ingest_log}-Vermerken atomar schreiben. Bereits eingelesene Slices (laut
+     * {@code ingest_log}) werden übersprungen. Ein fehlender GKG-Slice (404) wird NICHT vermerkt,
+     * damit ein späterer Lauf ihn erneut versuchen kann.
      */
-    private SliceGkg fetchFilterWriteGkg(LocalDateTime slice, Counters counters, ThemeHistogram histogram) {
-        Optional<List<String[]>> raw = client.download(GdeltDataset.GKG, slice);
-        if (raw.isEmpty()) {
-            counters.skippedSlices++;
-            return new SliceGkg(0, Set.of());
+    private SlicePhase1 processPhase1(LocalDateTime slice, Counters counters, ThemeHistogram histogram) {
+        String stamp = stamp(slice);
+        String gkgFile = GdeltDataset.GKG.filename(stamp);
+        if (store.isFileProcessed(gkgFile)) {
+            counters.slicesAlreadyProcessed++;
+            log.info("Slice {} ausgelassen — bereits eingelesen (ingest_log {})", stamp, gkgFile);
+            return SlicePhase1.SKIPPED;
         }
-        List<GdeltGkg> parsed = mapRows(raw.get(), gkgMapper::map, counters);
-        List<GdeltGkg> relevant = new ArrayList<>(parsed.size());
+        Optional<List<String[]>> gkgRaw = client.download(GdeltDataset.GKG, slice);
+        if (gkgRaw.isEmpty()) {
+            counters.skippedSlices++;
+            log.info("GKG-Datei {} fehlt/nicht abrufbar — Slice ausgelassen", gkgFile);
+            return SlicePhase1.SKIPPED;
+        }
+        List<GdeltGkg> parsedGkg = mapRows(gkgRaw.get(), gkgMapper::map, counters);
+        List<GdeltGkg> relevantGkg = new ArrayList<>(parsedGkg.size());
         Set<String> relevantUrls = new HashSet<>();
-        for (GdeltGkg gkg : parsed) {
-            histogram.addArticle(GdeltThemes.codes(gkg.getV2Themes())); // Statistik über ALLE Artikel
-            if (marketRelevanceFilter.isRelevant(gkg)) {
-                relevant.add(gkg);
-                if (gkg.getDocumentIdentifier() != null) {
-                    relevantUrls.add(gkg.getDocumentIdentifier());
+        for (GdeltGkg article : parsedGkg) {
+            histogram.addArticle(GdeltThemes.codes(article.getV2Themes())); // Statistik über ALLE Artikel
+            if (marketRelevanceFilter.isRelevant(article)) {
+                relevantGkg.add(article);
+                if (article.getDocumentIdentifier() != null) {
+                    relevantUrls.add(article.getDocumentIdentifier());
                 }
             }
         }
-        int dropped = parsed.size() - relevant.size();
-        counters.gkgFiltered += dropped;
-        log.info("GKG-Slice {}: {} Artikel geparst, {} marktrelevant behalten, {} verworfen",
-                stamp(slice), parsed.size(), relevant.size(), dropped);
-        return new SliceGkg(store.insertGkg(relevant), relevantUrls);
-    }
+        counters.gkgFiltered += parsedGkg.size() - relevantGkg.size();
 
-    /**
-     * Mentions-Slice: abrufen -> mappen -> (falls Kopplung aktiv) nur behalten, deren
-     * {@code mention_identifier} auf einen behaltenen Artikel zeigt -> schreiben und committen.
-     *
-     * @return Anzahl geschriebener Mentions
-     */
-    private long fetchWriteMentions(LocalDateTime slice, Set<String> relevantUrls, Counters counters) {
-        Optional<List<String[]>> raw = client.download(GdeltDataset.MENTIONS, slice);
-        if (raw.isEmpty()) {
-            counters.skippedSlices++;
-            return 0;
-        }
-        List<GdeltMention> parsed = mapRows(raw.get(), mentionMapper::map, counters);
-        List<GdeltMention> kept;
-        if (filterLinkedEventsAndMentions) {
-            kept = new ArrayList<>(parsed.size());
-            for (GdeltMention m : parsed) {
-                if (relevantUrls.contains(m.getMentionIdentifier())) {
-                    kept.add(m);
+        List<GdeltMention> keptMentions = new ArrayList<>();
+        Optional<List<String[]>> mentionsRaw = client.download(GdeltDataset.MENTIONS, slice);
+        if (mentionsRaw.isPresent()) {
+            List<GdeltMention> parsedMentions = mapRows(mentionsRaw.get(), mentionMapper::map, counters);
+            if (filterLinkedEventsAndMentions) {
+                for (GdeltMention mention : parsedMentions) {
+                    if (relevantUrls.contains(mention.getMentionIdentifier())) {
+                        keptMentions.add(mention);
+                    }
                 }
+                counters.mentionsFiltered += parsedMentions.size() - keptMentions.size();
+            } else {
+                keptMentions.addAll(parsedMentions);
             }
-            int dropped = parsed.size() - kept.size();
-            counters.mentionsFiltered += dropped;
-            log.info("Mentions-Slice {}: {} geparst, {} gekoppelt behalten, {} verworfen",
-                    stamp(slice), parsed.size(), kept.size(), dropped);
         } else {
-            kept = parsed;
+            counters.skippedSlices++;
+            log.info("Mentions-Datei {} fehlt/nicht abrufbar — ausgelassen",
+                    GdeltDataset.MENTIONS.filename(stamp));
         }
-        return store.insertMentions(kept);
+
+        // Atomar: GKG + Mentions + ingest_log(gkg) + ingest_log(mentions) in EINER Transaktion.
+        List<Object> batch = new ArrayList<>(relevantGkg.size() + keptMentions.size() + 2);
+        batch.addAll(relevantGkg);
+        batch.addAll(keptMentions);
+        batch.add(ingestLogEntry(gkgFile, GdeltDataset.GKG, relevantGkg.size()));
+        batch.add(ingestLogEntry(GdeltDataset.MENTIONS.filename(stamp), GdeltDataset.MENTIONS, keptMentions.size()));
+        store.insertAtomic(batch);
+
+        log.info("Slice {} Phase 1 geschrieben: gkg(marktrelevant)={}, mentions(gekoppelt)={}",
+                stamp, relevantGkg.size(), keptMentions.size());
+        return new SlicePhase1(relevantGkg.size(), keptMentions.size());
     }
 
     /**
@@ -232,14 +239,29 @@ public final class IngestGdeltDayUsecase {
         return written;
     }
 
-    /** Fallback bei deaktivierter Kopplung: alle Events des Slices ungefiltert schreiben. */
+    /**
+     * Fallback bei deaktivierter Kopplung: alle Events des Slices ungefiltert schreiben — mit
+     * {@code ingest_log}-Vermerk in derselben Transaktion und Skip bereits eingelesener Slices.
+     */
     private long fetchWriteAllEvents(LocalDateTime slice, Counters counters) {
+        String eventsFile = GdeltDataset.EVENTS.filename(stamp(slice));
+        if (store.isFileProcessed(eventsFile)) {
+            counters.slicesAlreadyProcessed++;
+            log.info("Events-Datei {} ausgelassen — bereits eingelesen (ingest_log)", eventsFile);
+            return 0;
+        }
         Optional<List<String[]>> raw = client.download(GdeltDataset.EVENTS, slice);
         if (raw.isEmpty()) {
             counters.skippedSlices++;
+            log.info("Events-Datei {} fehlt/nicht abrufbar — ausgelassen", eventsFile);
             return 0;
         }
-        return store.insertEvents(mapRows(raw.get(), eventMapper::map, counters));
+        List<GdeltEvent> parsed = mapRows(raw.get(), eventMapper::map, counters);
+        List<Object> batch = new ArrayList<>(parsed.size() + 1);
+        batch.addAll(parsed);
+        batch.add(ingestLogEntry(eventsFile, GdeltDataset.EVENTS, parsed.size()));
+        store.insertAtomic(batch);
+        return parsed.size();
     }
 
     /**
@@ -276,6 +298,15 @@ public final class IngestGdeltDayUsecase {
         stub.setGlobalEventId(globalEventId);
         stub.setDateAdded(eventTimeDate);
         return stub;
+    }
+
+    /** {@code ingest_log}-Eintrag; {@code processed_at} setzt die DB (Default {@code now()}). */
+    private static IngestLog ingestLogEntry(String filename, GdeltDataset dataset, int rowCount) {
+        IngestLog entry = new IngestLog();
+        entry.setFilename(filename);
+        entry.setDataset(dataset.logName());
+        entry.setRowCount(rowCount);
+        return entry;
     }
 
     /** Bildet Rohzeilen auf Entities ab; {@code null}-Ergebnisse und Parse-Fehler werden verworfen. */
@@ -330,8 +361,11 @@ public final class IngestGdeltDayUsecase {
         private long eventsBackfilled;
         private long eventsStubbed;
         private long eventBackfillSlices;
+        private long slicesAlreadyProcessed;
     }
 
-    /** Ergebnis eines GKG-Slices: geschriebene Artikel + URLs der behaltenen (für Mentions-Kopplung). */
-    private record SliceGkg(int written, Set<String> relevantUrls) {}
+    /** Ergebnis der Phase 1 eines Slices: geschriebene GKG-Artikel und Mentions. */
+    private record SlicePhase1(int gkg, int mentions) {
+        private static final SlicePhase1 SKIPPED = new SlicePhase1(0, 0);
+    }
 }

@@ -40,10 +40,16 @@ Bei aktivierter Kopplung (`filter-linked-events-and-mentions`, Default an) läuf
 Phasen; Events werden erst in Phase 2 geschrieben. Siehe `decisions.md` ADR 17.
 
 Phase 1 (committen):
-1. GKG laden → parsen → Marktrelevanz-Filter (Themen-Präfix-Schnitt). Behaltene Artikel werden
-   geschrieben; ihre URLs (`document_identifier`) bilden das Set `relevantUrls` DIESES Slices.
-2. Mentions laden → parsen → behalten, wenn `mention_identifier ∈ relevantUrls`. Behaltene werden
-   geschrieben UND committed (damit Phase 2 sie sieht).
+0. Ist der GKG-Slice laut `ingest_log` bereits eingelesen (`isFileProcessed`), wird Phase 1
+   ÜBERSPRUNGEN — verhindert doppeltes Speichern von GKG/Mentions (Constraint-Verletzung). Phase 2
+   läuft trotzdem (idempotent).
+1. GKG laden → parsen → Marktrelevanz-Filter (Themen-Präfix-Schnitt). Behaltene Artikel bilden mit
+   ihren URLs (`document_identifier`) das Set `relevantUrls` DIESES Slices.
+2. Mentions laden → parsen → behalten, wenn `mention_identifier ∈ relevantUrls`.
+3. Relevante GKG + gekoppelte Mentions + je ein `ingest_log`-Eintrag (GKG-Datei, Mentions-Datei)
+   werden in EINER Transaktion geschrieben und committed (atomar). So sieht Phase 2 die Mentions und
+   der `ingest_log`-Vermerk existiert nur, wenn die Daten committed sind. Ein fehlender GKG-Slice
+   (404) wird NICHT vermerkt (späterer Lauf kann ihn erneut versuchen).
 
 Phase 2 (Events auflösen):
 3. Über die committeten Mentions dieses Slices werden per SQL (`not exists` gegen `gdelt_events`,
@@ -84,8 +90,16 @@ gezielt aus seinem `eventTimeDate`-Slice nachgeladen, statt es im Vorwärts-Stre
   `ingest_log` ist vorgesehen, aber noch nicht aktiv.
 
 ## Dedup & Idempotenz
-- ingest_log(filename PK, md5, ...) verhindert Doppelverarbeitung; GDELT republisht Slices
-  gelegentlich -> zuletzt verarbeiteten Dateinamen tracken, md5 verifizieren.
+- `ingest_log(filename PK, dataset, md5, row_count, processed_at)` verhindert Doppelverarbeitung.
+  Je verarbeiteter Slice-Datei ein Eintrag (Dateiname = `<stamp><suffix>`, z.B.
+  `20260710000000.gkg.csv.zip`). Der Eintrag wird INNERHALB derselben schreibenden Transaktion wie
+  die Nutzdaten geschrieben (siehe Phase 1 oben; `insertAtomic`), damit Vermerk und Daten
+  konsistent sind. `processed_at` setzt die DB (`DEFAULT now()`; Entity `insertable=false`).
+- Vor der Verarbeitung eines Slices prüft `isFileProcessed(gkg-Datei)`; ist der Slice vermerkt, wird
+  Phase 1 übersprungen → GKG/Mentions werden nicht erneut gespeichert (verhindert die
+  Constraint-Verletzung auf dem natürlichen GKG-PK). Das macht Läufe wiederhol-/fortsetzbar.
+- `md5` wird derzeit nicht befüllt (Feld für spätere Republish-/Integritätsprüfung). Bei deaktivierter
+  Kopplung wird analog die Events-Datei vermerkt und übersprungen.
 
 ## Auflösung pro Entitätstyp (Ingest)
 - THEMA:  Code splitten -> UPSERT theme -> article_theme (FK = Code).

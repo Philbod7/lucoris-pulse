@@ -32,7 +32,7 @@ public class IngestLog {
     private Integer rowCount;
 
     /** Zeitpunkt der Verarbeitung. */
-    @Column(name = "processed_at", nullable = false)
+    @Column(name = "processed_at", nullable = false, insertable = false, updatable = false)
     private Instant processedAt;
 
     public String getFilename() {

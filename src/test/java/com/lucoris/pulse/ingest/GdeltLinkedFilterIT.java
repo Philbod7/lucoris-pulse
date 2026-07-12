@@ -6,6 +6,7 @@ import com.lucoris.pulse.AbstractPostgresIT;
 import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
+import com.lucoris.pulse.core.domain.IngestLog;
 import com.lucoris.pulse.ingest.gdelt.DayIngestReport;
 import com.lucoris.pulse.ingest.gdelt.FirehoseStore;
 import com.lucoris.pulse.ingest.gdelt.GdeltDataset;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -68,6 +70,12 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
     @Autowired CapturingStore store;
     @Autowired StubClient client;
 
+    @BeforeEach
+    void reset() {
+        store.clear();
+        client.reset();
+    }
+
     @Test
     void resolvesEventsFromCurrentSliceBackfillAndStub() {
         DayIngestReport report = service.ingestDay(DAY);
@@ -97,6 +105,26 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
         assertThat(client.eventDownloads(S_MISSING)).isEqualTo(3);
     }
 
+    @Test
+    void secondRunSkipsAlreadyIngestedSlices() {
+        service.ingestDay(DAY);
+        int gkg1 = store.gkg.size();
+        int mentions1 = store.mentions.size();
+        int events1 = store.events.size();
+
+        DayIngestReport second = service.ingestDay(DAY);
+
+        // GKG/Mentions/Events werden NICHT erneut geschrieben (keine Constraint-Verletzung).
+        assertThat(store.gkg).hasSize(gkg1);
+        assertThat(store.mentions).hasSize(mentions1);
+        assertThat(store.events).hasSize(events1);
+        // Nur der Slice mit GKG (T0) stand in ingest_log -> übersprungen.
+        assertThat(second.slicesAlreadyProcessed()).isEqualTo(1);
+        assertThat(second.gkg()).isZero();
+        assertThat(second.mentions()).isZero();
+        assertThat(second.events()).isZero();
+    }
+
     @TestConfiguration
     static class Stubs {
         @Bean
@@ -118,6 +146,10 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
 
         int eventDownloads(LocalDateTime slice) {
             return eventDownloads.getOrDefault(slice.format(STAMP), 0);
+        }
+
+        void reset() {
+            eventDownloads.clear();
         }
 
         @Override
@@ -189,6 +221,14 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
         final List<GdeltEvent> events = new ArrayList<>();
         final List<GdeltMention> mentions = new ArrayList<>();
         final List<GdeltGkg> gkg = new ArrayList<>();
+        final Set<String> processedFiles = new HashSet<>();
+
+        void clear() {
+            events.clear();
+            mentions.clear();
+            gkg.clear();
+            processedFiles.clear();
+        }
 
         @Override
         public int insertEvents(List<GdeltEvent> rows) {
@@ -206,6 +246,27 @@ class GdeltLinkedFilterIT extends AbstractPostgresIT {
         public int insertGkg(List<GdeltGkg> rows) {
             gkg.addAll(rows);
             return rows.size();
+        }
+
+        @Override
+        public int insertAtomic(List<?> rows) {
+            for (Object row : rows) {
+                if (row instanceof GdeltGkg g) {
+                    gkg.add(g);
+                } else if (row instanceof GdeltMention m) {
+                    mentions.add(m);
+                } else if (row instanceof GdeltEvent e) {
+                    events.add(e);
+                } else if (row instanceof IngestLog logEntry) {
+                    processedFiles.add(logEntry.getFilename());
+                }
+            }
+            return rows.size();
+        }
+
+        @Override
+        public boolean isFileProcessed(String filename) {
+            return processedFiles.contains(filename);
         }
 
         @Override

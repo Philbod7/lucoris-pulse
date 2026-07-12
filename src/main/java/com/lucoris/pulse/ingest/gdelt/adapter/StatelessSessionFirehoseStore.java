@@ -3,6 +3,7 @@ package com.lucoris.pulse.ingest.gdelt.adapter;
 import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
+import com.lucoris.pulse.core.domain.IngestLog;
 import com.lucoris.pulse.ingest.gdelt.FirehoseStore;
 import com.lucoris.pulse.ingest.gdelt.MissingEventRef;
 import jakarta.persistence.EntityManagerFactory;
@@ -46,6 +47,18 @@ public class StatelessSessionFirehoseStore implements FirehoseStore {
     @Override
     public int insertGkg(List<GdeltGkg> rows) {
         return insertAll(rows);
+    }
+
+    @Override
+    public int insertAtomic(List<?> rows) {
+        return insertAll(rows);
+    }
+
+    @Override
+    public boolean isFileProcessed(String filename) {
+        try (StatelessSession session = sessionFactory.openStatelessSession()) {
+            return session.get(IngestLog.class, filename) != null;
+        }
     }
 
     @Override
