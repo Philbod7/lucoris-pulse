@@ -36,7 +36,7 @@ class FirehoseStoreEventQueryIT extends AbstractPostgresIT {
     void truncate() {
         // Vor UND nach dem Test aufräumen: der Postgres-Container ist über alle IT geteilt und der
         // StatelessSession-Firehose committet außerhalb von Springs Rollback.
-        jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log CASCADE");
+        // jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log CASCADE");
     }
 
     @Test

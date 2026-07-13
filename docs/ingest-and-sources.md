@@ -11,6 +11,10 @@
   ZIP mit genau einer Datei — erst entpacken.
 - Primärdatensatz für Lucoris: GKG (V2Themes, V2Tone, V2Organizations, DocumentIdentifier).
   Events/Mentions nur für die Ereignis-Klammer (global_event_id).
+- ZEIT-CUTOFF: Der Tageslauf stoppt beim ersten Slice, dessen Startzeit NACH der aktuellen UTC-Zeit
+  liegt (`Instant.now(clock)`) — es wird nichts für die Zukunft abgerufen. Da Slices chronologisch
+  aufsteigen, bricht die Schleife dort ab. Relevant beim Einlesen des laufenden Tages; für
+  vergangene Tage greift der Cutoff nie. Die `Clock` ist ein Bean (`ingestClock`), in Tests fixierbar.
 
 ## Marktrelevanz-Filter (Ingest)
 - Ziel: DB-Menge klein halten — nur marktrelevante Artikel werden gespeichert. Der Filter greift

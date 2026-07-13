@@ -45,7 +45,7 @@ class GdeltLiveRangeIngestIT extends AbstractPostgresIT {
      * Manuell einzustellender Bereich, Format {@code "von..bis"} ({@code bis} exklusiv). Leeres/
      * fehlendes {@code bis} liest genau den Tag {@code von}. Innerhalb 2026-07/2026-08 halten.
      */
-    private static final String RANGE_UTC = "2026-07-06..2026-07-08";
+    private static final String RANGE_UTC = "2026-07-05..2026-07-08";
 
     @Autowired GdeltIngestService service;
     @Autowired JdbcTemplate jdbc;
@@ -54,7 +54,7 @@ class GdeltLiveRangeIngestIT extends AbstractPostgresIT {
     void truncate() {
         // Firehose-Commits liegen außerhalb von Springs Rollback -> explizit aufräumen.
         // CASCADE: event_significance hat einen FK auf gdelt_events. Partitionen werden mitgeleert.
-        jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log CASCADE");
+        //jdbc.execute("TRUNCATE TABLE gdelt_events, gdelt_mentions, gdelt_gkg, ingest_log CASCADE");
     }
 
     @Test

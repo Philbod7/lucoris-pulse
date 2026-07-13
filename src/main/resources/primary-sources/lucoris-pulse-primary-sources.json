@@ -1,0 +1,266 @@
+{
+  "version": "2026-07-13c",
+  "purpose": "Routing-Manifest fuer den Lucoris-Pulse-Primaerquellen-Ingest. KEIN Parser-Input: der Importer liest dieses Manifest einheitlich und routet jede Quelle ueber 'handler' an die konkrete Adapter-Klasse. Unten emittieren alle Adapter dasselbe PrimaryEvent.",
+  "schema": {
+    "access.type": "Dispatch-KATEGORIE: rss | api | landing.",
+    "handler": "Konkrete Adapter-KLASSE. Bei rss immer 'generic_rss'. Bei api/landing je eigener Handler.",
+    "access.url": "Wohin. Bei confidence!=verified beim Einbau einmal antippen und fixieren.",
+    "access.format": "Nutzlast-Form: rss2.0 | atom | json | html | webservice.",
+    "poll": "interval (Sekunden) fuer Feeds; calendar (ref) fuer terminierte Releases.",
+    "enabled": "true = der Importer verdrahtet diese Quelle jetzt. Start: nur die zwei verified RSS-Feeds.",
+    "confidence": "verified | verify_endpoint | landing_only.",
+    "originates": "Ereignistypen, fuer die diese Quelle die ORIGINAERE Ausgabestelle ist (LLM-Routing-Landkarte).",
+    "legal_class": "A = amtlich/gemeinfrei/offene Lizenz (Ausdrucksform uebernehmbar, ggf. mit Attribution). B = zur Verbreitung bestimmt, Text formal geschuetzt (nur Fakten extrahieren, eigene Formulierung, Link).",
+    "attribution": "required: Quellenangabe ist Lizenz-/Nutzungsbedingung. formula: vorgegebene/uebliche Formel. modified_note: true = bei Bearbeitung Veraenderungshinweis noetig (z.B. dl-de/by-2.0). Fehlt das Feld: keine Pflicht, Anzeige-Regel unten gilt trotzdem.",
+    "display_rule": "Rendering zeigt IMMER Institution + Datum + Deep-Link aus dem PrimaryEvent (url-Feld) — unabhaengig von der Pflichtlage. Bei attribution.modified_note zusaetzlich 'eigene Darstellung auf Basis von ...'.",
+    "lane": "ingest_sources = gepollt; verification_lookup = nur anlassbezogen; blocked = maschineller Zugriff untersagt; planned = vorgemerkt, noch nicht verfuegbar."
+  },
+  "relevance_gate": {
+    "rationale": "Entscheidet, welcher Feed-Eintrag als 'relevant' durchkommt. Kalibrieren gegen die 15-20 Handlauf-Ereignisse als Ground Truth. ACHTUNG: GDELT DOC API hart limitiert (1 Req/5s pro IP, echter 429) -> nur Erprobung/low-volume; Produktions-Substrat spaeter: Web-News-Ngrams-Dataset (lokale 15-Min-Dateien).",
+    "source": "GDELT DOC 2.0 API (ArtList / TimelineVolRaw / TimelineTone), format=json explizit, Antwort auf JSON pruefen (Fehler kommen teils als 200+Text)",
+    "v1_rule": "PUBLISH, wenn distinct_domains_24h >= T_domains UND (tone_abs >= T_tone ODER velocity_spike). Kalender-Ereignisse (Notenbank/Statistik) sind per se relevant, umgehen das Gate.",
+    "v1_defaults_to_calibrate": { "T_domains": 25, "T_tone": 4.0, "velocity_spike_factor": 3.0 }
+  },
+
+  "ingest_sources": [
+    {
+      "id": "ecb-press", "institution": "European Central Bank (EZB)", "category": "central_bank", "region": "EA", "tier": 1,
+      "originates": ["monetary_policy_decision","ecb_statement","speech","press_conference","interview"],
+      "access": { "type": "rss", "url": "https://www.ecb.europa.eu/rss/press.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 300 },
+      "enabled": true, "confidence": "verified", "legal_class": "A",
+      "attribution": { "required": true, "formula": "Quelle: Europaeische Zentralbank, [Titel/Datum]", "modified_note": false },
+      "notes": "Weiterverwendung mit Quellenangabe; keine Sinnentstellung, kein Autorisierungs-Eindruck."
+    },
+    {
+      "id": "fed-monetary", "institution": "US Federal Reserve (FOMC)", "category": "central_bank", "region": "US", "tier": 1,
+      "originates": ["fomc_statement","monetary_policy_decision","fomc_minutes","economic_projections"],
+      "access": { "type": "rss", "url": "https://www.federalreserve.gov/feeds/press_monetary.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 300 },
+      "enabled": true, "confidence": "verified", "legal_class": "A",
+      "notes": "US-Bundeswerk, gemeinfrei (17 U.S.C. § 105). Feed-Hub: press_all.xml, speeches.xml, testimony.xml."
+    },
+    {
+      "id": "sec-edgar", "institution": "US SEC (EDGAR)", "category": "company_primary", "region": "US", "tier": 1,
+      "originates": ["us_ad_hoc_8k","annual_report_10k","quarterly_report_10q","insider_trade_form4","holdings_13f_13d_13g"],
+      "access": { "type": "api", "url": "https://data.sec.gov/", "format": "json" },
+      "handler": "sec_edgar", "poll": { "mode": "interval", "seconds": 120 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "notes": "NAECHSTE NEUE QUELLE (Step 2). Gemeinfrei (§ 105). Fair Access: max 10 Req/s pro IP, User-Agent mit Kontakt PFLICHT (403 sonst), CIK auf 10 Stellen zero-padden. 8-K-Strom = US-Ad-hoc. Beim Einbau fixieren: current-events Atom-Feed, submissions-Endpoint, Volltextsuche (efts.sec.gov). Filing-Permalink ueber Accession Number."
+    },
+    {
+      "id": "fed-speeches", "institution": "US Federal Reserve (Reden)", "category": "central_bank", "region": "US", "tier": 1,
+      "originates": ["speech","testimony"],
+      "access": { "type": "rss", "url": "https://www.federalreserve.gov/feeds/speeches.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 600 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A"
+    },
+    {
+      "id": "destatis-press", "institution": "Statistisches Bundesamt (Destatis)", "category": "statistics_office", "region": "DE", "tier": 1,
+      "originates": ["german_inflation","gdp","unemployment","trade","producer_prices"],
+      "access": { "type": "rss", "url": "https://www.destatis.de/DE/Service/RSS/_inhalt.html", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "calendar", "ref": "https://www.destatis.de/DE/Presse/Termine/Veroeffentlichungstabelle/_inhalt.html" },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "attribution": { "required": true, "formula": "Quelle: Statistisches Bundesamt (Destatis), [Jahr]", "modified_note": true },
+      "notes": "dl-de/by-2.0: Namensnennung PFLICHT, bei Bearbeitung Veraenderungshinweis ('eigene Darstellung auf Basis von...'). Exakte Feed-URL vom RSS-Hub abgreifen."
+    },
+    {
+      "id": "us-bls", "institution": "US Bureau of Labor Statistics", "category": "statistics_office", "region": "US", "tier": 1,
+      "originates": ["cpi","nonfarm_payrolls","unemployment","ppi","real_earnings"],
+      "access": { "type": "rss", "url": "https://www.bls.gov/feed/", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "calendar", "ref": "https://www.bls.gov/schedule/news_release/" },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A"
+    },
+    {
+      "id": "us-bea", "institution": "US Bureau of Economic Analysis", "category": "statistics_office", "region": "US", "tier": 1,
+      "originates": ["us_gdp","pce_inflation","personal_income"],
+      "access": { "type": "rss", "url": "https://www.bea.gov/rss.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "calendar", "ref": "https://www.bea.gov/news/schedule" },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A"
+    },
+    {
+      "id": "eurostat-euro-indicators", "institution": "Eurostat", "category": "statistics_office", "region": "EA", "tier": 1,
+      "originates": ["inflation_flash","hicp","gdp","unemployment","industrial_production","trade_balance"],
+      "access": { "type": "landing", "url": "https://ec.europa.eu/eurostat/web/euro-indicators", "format": "html" },
+      "handler": "release_calendar", "poll": { "mode": "calendar", "ref": "https://ec.europa.eu/eurostat/news/release-calendar" },
+      "enabled": false, "confidence": "landing_only", "legal_class": "A",
+      "attribution": { "required": true, "formula": "Quelle: Eurostat", "modified_note": false }
+    },
+    {
+      "id": "bundesbank-press", "institution": "Deutsche Bundesbank", "category": "central_bank", "region": "DE", "tier": 1,
+      "originates": ["speech","press_release","financial_stability"],
+      "access": { "type": "rss", "url": "https://www.bundesbank.de/service/rss", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 600 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "bundesregierung-presse", "institution": "Bundesregierung", "category": "government_executive", "region": "DE", "tier": 2,
+      "originates": ["government_statement","policy_announcement","press_release"],
+      "access": { "type": "rss", "url": "https://www.bundesregierung.de/breg-de/service/rss", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B",
+      "notes": "Pressemitteilungen sind NICHT pauschal § 5 UrhG — Klasse B (Fakten extrahieren). RSS-Hub-URL beim Einbau fixieren."
+    },
+    {
+      "id": "bmf-presse", "institution": "Bundesministerium der Finanzen", "category": "government_executive", "region": "DE", "tier": 2,
+      "originates": ["fiscal_policy","tax_policy","press_release"],
+      "access": { "type": "rss", "url": "https://www.bundesfinanzministerium.de/rss", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "bundestag-dip", "institution": "Deutscher Bundestag (DIP)", "category": "parliament", "region": "DE", "tier": 2,
+      "originates": ["drucksache","plenarprotokoll","gesetzgebungsvorgang"],
+      "access": { "type": "api", "url": "https://search.dip.bundestag.de/api/v1/", "format": "json" },
+      "handler": "bundestag_dip", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "notes": "Offizielle, kostenlose REST-API (API-Key noetig, frei erhaeltlich — beim Einbau pruefen). Drucksachen/Protokolle = amtliche Werke § 5 UrhG. Fuer Gesetzgebungs-Tracking (Steuer-/Finanzmarktrecht)."
+    },
+    {
+      "id": "boe-news", "institution": "Bank of England", "category": "central_bank", "region": "UK", "tier": 2,
+      "originates": ["bank_rate_decision","mpc_minutes","speech"],
+      "access": { "type": "rss", "url": "https://www.bankofengland.co.uk/rss/news", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 600 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "bis-cbspeeches", "institution": "Bank for International Settlements", "category": "central_bank", "region": "GLOBAL", "tier": 2,
+      "originates": ["central_bank_speech"],
+      "access": { "type": "rss", "url": "https://www.bis.org/doclist/cbspeeches.rss", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "whitehouse-news", "institution": "The White House", "category": "government_executive", "region": "US", "tier": 2,
+      "originates": ["presidential_action","executive_order","proclamation","briefing","statement","fact_sheet"],
+      "access": { "type": "landing", "url": "https://www.whitehouse.gov/news/", "format": "html" },
+      "handler": "wordpress_feed", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "notes": "WordPress; RSS wahrscheinlich /feed/. Sonst html_index-Handler."
+    },
+    {
+      "id": "us-dod", "institution": "US Department of Defense", "category": "government_executive", "region": "US", "tier": 2,
+      "originates": ["military_statement","operation_readout"],
+      "access": { "type": "rss", "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A"
+    },
+    {
+      "id": "us-state", "institution": "US Department of State", "category": "government_executive", "region": "US", "tier": 2,
+      "originates": ["diplomatic_statement","sanctions_announcement","readout"],
+      "access": { "type": "landing", "url": "https://www.state.gov/press-releases/", "format": "html" },
+      "handler": "html_index", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A"
+    },
+    {
+      "id": "eu-commission-presscorner", "institution": "European Commission (Rapid)", "category": "government_executive", "region": "EU", "tier": 2,
+      "originates": ["eu_policy","sanctions_package","trade_measure","state_aid"],
+      "access": { "type": "api", "url": "https://ec.europa.eu/commission/presscorner/api/documents", "format": "json" },
+      "handler": "eu_presscorner_rapid", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "attribution": { "required": true, "formula": "Quelle: Europaeische Kommission", "modified_note": false },
+      "notes": "Weiterverwendung CC-BY-aequivalent (Beschluss 2011/833/EU)."
+    },
+    {
+      "id": "opec-press", "institution": "OPEC", "category": "commodity_body", "region": "GLOBAL", "tier": 3,
+      "originates": ["opec_decision","production_quota","opec_statement"],
+      "access": { "type": "landing", "url": "https://www.opec.org/opec_web/en/press_room/28.htm", "format": "html" },
+      "handler": "html_index", "poll": { "mode": "interval", "seconds": 3600 },
+      "enabled": false, "confidence": "landing_only", "legal_class": "B"
+    },
+    {
+      "id": "iaea-news", "institution": "International Atomic Energy Agency", "category": "multilateral", "region": "GLOBAL", "tier": 3,
+      "originates": ["nuclear_statement","inspection_report"],
+      "access": { "type": "rss", "url": "https://www.iaea.org/feeds/topnews", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "imf-news", "institution": "International Monetary Fund", "category": "multilateral", "region": "GLOBAL", "tier": 3,
+      "originates": ["weo_forecast","imf_statement","country_review"],
+      "access": { "type": "rss", "url": "https://www.imf.org/en/News/RSS", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "un-news", "institution": "United Nations", "category": "multilateral", "region": "GLOBAL", "tier": 3,
+      "originates": ["unsc_resolution","un_statement"],
+      "access": { "type": "rss", "url": "https://news.un.org/feed/subscribe/en/news/all/rss.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "nato-news", "institution": "NATO", "category": "multilateral", "region": "GLOBAL", "tier": 3,
+      "originates": ["nato_statement","defense_announcement"],
+      "access": { "type": "rss", "url": "https://www.nato.int/cps/en/natohq/rss_news.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+    },
+    {
+      "id": "eurlex-oj", "institution": "EUR-Lex / EU Official Journal", "category": "legal_primary", "region": "EU", "tier": 3,
+      "originates": ["sanctions_regulation","legal_text"],
+      "access": { "type": "api", "url": "https://eur-lex.europa.eu/content/help/data-reuse/webservice.html", "format": "webservice" },
+      "handler": "eurlex_webservice", "poll": { "mode": "interval", "seconds": 3600 },
+      "enabled": false, "confidence": "landing_only", "legal_class": "A"
+    },
+    {
+      "id": "bundesanzeiger-kapitalmarkt", "institution": "Bundesanzeiger (Kapitalmarkt)", "category": "company_primary", "region": "DE", "tier": 3,
+      "originates": ["ad_hoc_disclosure","voting_rights","capital_market_publication"],
+      "access": { "type": "landing", "url": "https://www.bundesanzeiger.de/pub/de/kapitalmarkt", "format": "html" },
+      "handler": "html_index", "poll": { "mode": "interval", "seconds": 1800 },
+      "enabled": false, "confidence": "landing_only", "legal_class": "A",
+      "notes": "OFFEN: robots + Nutzungsbedingungen pruefen, BEVOR verdrahtet wird. Nicht pollen bis geklaert."
+    },
+    {
+      "id": "bafin-datenbanken", "institution": "BaFin (Stimmrechte / Directors' Dealings)", "category": "company_primary", "region": "DE", "tier": 2,
+      "originates": ["voting_rights_consolidated","directors_dealings_art19"],
+      "access": { "type": "landing", "url": "https://www.bafin.de/DE/PublikationenDaten/Datenbanken/", "format": "html" },
+      "handler": "html_index", "poll": { "mode": "interval", "seconds": 3600 },
+      "enabled": false, "confidence": "landing_only", "legal_class": "A",
+      "notes": "Amtlich, frei, zeitnah aktualisiert. OFFEN: robots/ToS + Exportformate pruefen, BEVOR verdrahtet wird. DE-Bruecke bis ESAP."
+    },
+    {
+      "id": "market-data-primary", "institution": "Marktdaten-Feed (Boerse/Provider)", "category": "data_primary", "region": "GLOBAL", "tier": 1,
+      "originates": ["index_move","commodity_price","fx_move","yield_move"],
+      "access": { "type": "api", "url": "PLATZHALTER_dein_marktdaten_provider", "format": "json" },
+      "handler": "marketdata_provider", "poll": { "mode": "interval", "seconds": 60 },
+      "enabled": false, "confidence": "landing_only", "legal_class": "A",
+      "notes": "Reine Marktbewegungen haben KEINEN Dokument-Ursprung — der Fakt IST der Kurs."
+    }
+  ],
+
+  "verification_lookup": [
+    {
+      "id": "unternehmensregister", "institution": "Unternehmensregister (Bundesanzeiger Verlag)", "category": "company_primary", "region": "DE",
+      "originates": ["mandatory_filing","register_entry","financial_report_publication"],
+      "access": { "type": "landing", "url": "https://www.unternehmensregister.de", "format": "html" },
+      "handler": "portal_lookup", "method": "on_demand", "legal_class": "A",
+      "access_status": { "robots": "green", "sitemaps": "present", "tos_automated_access": "OFFEN — manuell pruefen", "captcha": "auf Dokument-Ebene" },
+      "notes": "KEIN Ingest. Anlassbezogener Einzel-Lookup. Fachanwalt-Frage 'Einzelabruf vs. systematisch'."
+    }
+  ],
+
+  "blocked": [
+    {
+      "id": "eqs-news", "institution": "DGAP / EQS News", "category": "company_primary", "region": "DE",
+      "access": { "url": "https://www.eqs-news.com" },
+      "reason": "Kommerzieller Aggregator mit maschinenlesbarer KI-/Bot-Blockliste (Opt-out). § 44b greift nicht. 'Nur als Suche nutzen' heilt das nicht.",
+      "alternative": "Emittenten-IR-Seiten (Art. 17 MAR-pflichtig, IR-Katalog Pilot DAX 40), Bundesanzeiger-Kapitalmarkt (nach ToS-Check), ab 2027 ESAP."
+    }
+  ],
+
+  "planned": [
+    {
+      "id": "esap", "institution": "European Single Access Point (ESMA)", "category": "company_primary", "region": "EU",
+      "originates": ["transparency_directive_filings","prospectus","short_selling","voting_rights","financial_reports"],
+      "expected": "2027-07-10",
+      "notes": "VO (EU) 2023/2859. Sammelt seit 10.07.2026 Phase-1-Daten; oeffentlich mit kostenlosem, mandatiertem API bis 10.07.2027 (iXBRL/XML, LEI-Metadaten, Benachrichtigungsdienst). Loest die DE/EU-Unternehmens-Saeule strukturell — Brueckenloesungen (BaFin, IR-Katalog) bewusst schlank halten. API-Details erscheinen bei ESMA."
+    }
+  ],
+
+  "fallback_for_uncovered": {
+    "id": "multi-source-fact-agreement",
+    "when": "Brechende Geopolitik ohne (noch) verfuegbare Primaerquelle.",
+    "method": "Fakt aus Konvergenz mehrerer Sekundaerquellen ableiten (>=3 unabhaengige Agenturen stimmen ueberein -> real). Eigene faktische Repraesentation + Links, nie fremde Ausdrucksform."
+  }
+}

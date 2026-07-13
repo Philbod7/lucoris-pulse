@@ -31,7 +31,7 @@ public class IngestConfig {
 
     @Bean
     IngestGdeltDayUsecase ingestGdeltDayUsecase(
-            GdeltSliceClient client, FirehoseStore store, GdeltProperties props) {
+            GdeltSliceClient client, FirehoseStore store, GdeltProperties props, Clock ingestClock) {
         return new IngestGdeltDayUsecase(
                 client,
                 store,
@@ -41,6 +41,7 @@ public class IngestConfig {
                 new MarketRelevanceFilter(props.getMarketRelevantThemePrefixes()),
                 props.isLogThemeHistogram(),
                 props.isFilterLinkedEventsAndMentions(),
-                props.getEventBackfillRetries());
+                props.getEventBackfillRetries(),
+                ingestClock);
     }
 }

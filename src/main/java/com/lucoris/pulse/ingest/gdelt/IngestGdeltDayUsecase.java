@@ -5,6 +5,7 @@ import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
 import com.lucoris.pulse.core.domain.IngestLog;
 import com.lucoris.pulse.core.domain.UrlIndex;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -62,6 +63,7 @@ public final class IngestGdeltDayUsecase {
     private final boolean logThemeHistogram;
     private final boolean filterLinkedEventsAndMentions;
     private final int eventBackfillRetries;
+    private final Clock clock;
 
     public IngestGdeltDayUsecase(
             GdeltSliceClient client,
@@ -72,7 +74,8 @@ public final class IngestGdeltDayUsecase {
             MarketRelevanceFilter marketRelevanceFilter,
             boolean logThemeHistogram,
             boolean filterLinkedEventsAndMentions,
-            int eventBackfillRetries) {
+            int eventBackfillRetries,
+            Clock clock) {
         this.client = client;
         this.store = store;
         this.eventMapper = eventMapper;
@@ -82,6 +85,7 @@ public final class IngestGdeltDayUsecase {
         this.logThemeHistogram = logThemeHistogram;
         this.filterLinkedEventsAndMentions = filterLinkedEventsAndMentions;
         this.eventBackfillRetries = Math.max(1, eventBackfillRetries);
+        this.clock = clock;
     }
 
     /**
@@ -93,6 +97,7 @@ public final class IngestGdeltDayUsecase {
      */
     public DayIngestReport ingestDay(LocalDate dayUtc) {
         LocalDateTime dayStart = dayUtc.atStartOfDay(); // 00:00:00 UTC
+        Instant now = Instant.now(clock);               // Cutoff: nichts in der Zukunft abrufen
         Counters counters = new Counters();
         ThemeHistogram histogram = new ThemeHistogram();
         long events = 0;
@@ -101,6 +106,12 @@ public final class IngestGdeltDayUsecase {
 
         for (int i = 0; i < SLICES_PER_DAY; i++) {
             LocalDateTime slice = dayStart.plusMinutes((long) SLICE_MINUTES * i); // 00:00 .. 23:45
+            if (slice.toInstant(ZoneOffset.UTC).isAfter(now)) {
+                // Slice liegt in der Zukunft — Abruf stoppen (Slices sind chronologisch aufsteigend).
+                log.info("Aktuelle Zeit erreicht — Abbruch bei Slice {}: keine Zukunfts-Slices abrufen",
+                        stamp(slice));
+                break;
+            }
             SlicePhase1 phase1 = processPhase1(slice, counters, histogram);
             gkg += phase1.gkg();
             mentions += phase1.mentions();

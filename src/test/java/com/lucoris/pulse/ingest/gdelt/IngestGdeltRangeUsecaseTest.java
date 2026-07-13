@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import com.lucoris.pulse.core.domain.GdeltEvent;
 import com.lucoris.pulse.core.domain.GdeltGkg;
 import com.lucoris.pulse.core.domain.GdeltMention;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +28,8 @@ class IngestGdeltRangeUsecaseTest {
 
     private static final LocalDate DAY = LocalDate.of(2026, 7, 10);
     private static final int SLICES_PER_DAY = 96;
+    /** Uhr weit nach den Testtagen — so liegen alle Slices in der Vergangenheit (kein Zeit-Cutoff). */
+    private static final Clock FAR_FUTURE = Clock.fixed(Instant.parse("2027-01-01T00:00:00Z"), ZoneOffset.UTC);
 
     private RecordingClient client;
     private IngestGdeltDayUsecase usecase;
@@ -33,7 +37,11 @@ class IngestGdeltRangeUsecaseTest {
     @BeforeEach
     void setUp() {
         client = new RecordingClient();
-        usecase = new IngestGdeltDayUsecase(
+        usecase = newUsecase(FAR_FUTURE);
+    }
+
+    private IngestGdeltDayUsecase newUsecase(Clock clock) {
+        return new IngestGdeltDayUsecase(
                 client,
                 new NoopStore(),
                 new GdeltEventRowMapper(),
@@ -42,7 +50,8 @@ class IngestGdeltRangeUsecaseTest {
                 new MarketRelevanceFilter(List.of()),
                 false, // logThemeHistogram
                 true,  // filterLinkedEventsAndMentions
-                1);    // eventBackfillRetries
+                1,     // eventBackfillRetries
+                clock);
     }
 
     @Test
@@ -93,6 +102,18 @@ class IngestGdeltRangeUsecaseTest {
     void vonNullIsRejected() {
         assertThatExceptionOfType(NullPointerException.class)
                 .isThrownBy(() -> usecase.ingestRange(null, DAY));
+    }
+
+    @Test
+    void ingestDayStopsAtCurrentTimeAndSkipsFutureSlices() {
+        // Uhr auf DAY 00:30 fixiert -> nur die Slices 00:00, 00:15, 00:30 dürfen abgerufen werden;
+        // 00:45 und später liegen in der Zukunft und werden NICHT mehr angefragt.
+        Clock at0030 = Clock.fixed(DAY.atTime(0, 30).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
+        newUsecase(at0030).ingestDay(DAY);
+
+        assertThat(client.requested)
+                .containsExactly(DAY.atStartOfDay(), DAY.atTime(0, 15), DAY.atTime(0, 30));
     }
 
     /** Fake-Client: protokolliert angefragte Slices, liefert stets {@link Optional#empty()}. */
