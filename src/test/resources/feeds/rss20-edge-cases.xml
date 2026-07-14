@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetische RSS-2.0-Fixture fuer die Randfaelle. Beginnt mit einem UTF-8-BOM (wie der Fed-Feed).
+  ACHTUNG: Das BOM nicht "aufraeumen" - es ist Teil des Tests.
+-->
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Randfall-Feed</title>
+    <link>https://example.org/</link>
+    <description>Feed mit absichtlich unsauberen Eintraegen.</description>
+    <language>en</language>
+
+    <!-- 1: content:encoded UND description -> content:encoded muss gewinnen. -->
+    <item>
+      <title>Mit content:encoded</title>
+      <link>https://example.org/1</link>
+      <guid>https://example.org/1</guid>
+      <pubDate>Mon, 13 Jul 2026 19:00:00 +0200</pubDate>
+      <description>Kurzfassung, die NICHT gewinnen darf</description>
+      <content:encoded><![CDATA[<p>Volltext aus content:encoded</p>]]></content:encoded>
+    </item>
+
+    <!-- 2: exotisches Datum (Leerzeichen statt 'T', keine Zone) - daran scheitert Romes Parser,
+         die FeedDates-Kette faengt es auf und liest es als UTC. -->
+    <item>
+      <title>Exotisches Datum</title>
+      <link>https://example.org/2</link>
+      <guid>https://example.org/2</guid>
+      <pubDate>2026-07-10 06:15:00</pubDate>
+      <description>Nur description</description>
+    </item>
+
+    <!-- 3: GAR KEIN Datum -> muss verworfen werden (kein Notbehelf mit der Abrufzeit). -->
+    <item>
+      <title>Ohne jedes Datum</title>
+      <link>https://example.org/3</link>
+      <guid>https://example.org/3</guid>
+      <description>Wird verworfen</description>
+    </item>
+
+    <!-- 4: weder link noch guid -> muss verworfen werden (url ist Pflicht am PrimaryEvent). -->
+    <item>
+      <title>Ohne Link</title>
+      <pubDate>Fri, 10 Jul 2026 12:00:00 GMT</pubDate>
+      <description>Wird ebenfalls verworfen</description>
+    </item>
+  </channel>
+</rss>

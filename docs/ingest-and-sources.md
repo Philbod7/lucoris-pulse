@@ -122,6 +122,40 @@ Fakt (aus Quelle) und Einordnung (didaktischer Rahmen) getrennt -> KEINE Handlun
 (Finanzbildung, nicht Anlageberatung unter KWG/WpHG). Nie aus GDELT-Metadaten allein
 "beschreiben" (Halluzinationsrisiko am höchsten, wo Vertrauen am wichtigsten ist).
 
+## Primärquellen-Abruf (zweite Ingest-Spur)
+
+Die zweite Spur neben GDELT: primäre Ausgabestellen (Notenbanken, Statistikämter, Regulatoren)
+liefern den Fakt selbst, nicht nur den Hinweis darauf. Details: `docs/decisions.md` Nr. 20–22.
+
+- **Routing-Manifest** `src/main/resources/primary-sources/lucoris-pulse-primary-sources.json` —
+  die einzige Quelle der Wahrheit darüber, WAS abgerufen wird. Der Code entscheidet nur das WIE.
+  Eine Quelle aktivieren = `enabled: true` setzen; bei `handler: generic_rss` ohne eine Zeile Code.
+- **Routing**: `AdapterDispatcher` wählt anhand von `handler` die Adapter-Klasse. Heute verdrahtet:
+  `generic_rss` (RSS 2.0 + Atom via Rome). Ein unbekannter Handler wirft — eine aktivierte Quelle,
+  die niemand abruft, wäre ein unsichtbares Datenloch.
+- **Ausgabe**: alle Adapter emittieren `PrimaryEvent` (inkl. `legal_class` und `attribution` aus der
+  Quelle, damit das Rendering die Quellzeile bauen kann).
+- **Kein Auto-Start**: `IngestPrimarySourcesUsecase` wird aufgerufen, er startet nicht von selbst.
+- **Aktiv**: derzeit nur `ecb-press` und `fed-monetary` (beide `legal_class: A`, `verified`).
+
+### Load-Validierung der Registry
+`confidence` im Manifest ist eine Behauptung, die veraltet (URL zieht um, Herausgeber blockt).
+Der `SourceLoadValidator` prüft sie gegen die Wirklichkeit — über den echten Ingest-Pfad:
+
+```
+mvn spring-boot:run -Dspring-boot.run.profiles=validate-sources
+```
+
+Er meldet: als `verified` geführt, liefert aber nichts (URL/Zugang prüfen) bzw. funktioniert, ist
+aber noch nicht als geprüft eingetragen (`confidence` hochstufbar). Läuft NIE im Standard-Build.
+
+### Live-Test gegen die echten Feeds
+Vom `mvn verify` per Default ausgeschlossen (wie die GDELT-Live-ITs, per Env-Variable):
+
+```
+PRIMARY_LIVE_IT=true mvn -Dit.test=PrimaryRssLiveIT verify
+```
+
 ## Quellen-Erlaubnis (rechtlich) — VOR jedem Abruf prüfen
 - GDELT-Lizenz: freie kommerzielle Weiterverbreitung, ABER Attributionspflicht (Verweis +
   Link auf gdeltproject.org) muss propagieren (API-Response/Terms).
@@ -136,6 +170,14 @@ Fakt (aus Quelle) und Einordnung (didaktischer Rahmen) getrennt -> KEINE Handlun
   namentlich genannt ist. Namenslücke NICHT ausnutzen. Kein User-Agent-Spoofing.
 - Output: nur eigene Zusammenfassung, keine Passagen reproduzieren, keinen Volltext archivieren
   (Löschpflicht nach TDM). Höflich crawlen (ehrlicher UA, Rate-Limit, Caching).
+
+### Stand im Primärquellen-Pfad (OFFEN)
+Der `GenericRssAdapter` protokolliert VOR jedem Abruf die Allowlist-Entscheidung mit Zeitstempel
+(`id`, `legal_class`, `confidence`, `url`) — das deckt die Beweislast-Zeile ab, solange die
+kuratierte Allowlist die Entscheidung trägt. **Ein maschineller robots.txt-/TDM-Check zur Laufzeit
+fehlt noch** und ist ein eigener Increment (Port `RobotsGate`, Cache je Domain, konservative Regel
+oben). Bis dahin gilt: Quellen NUR nach manueller Prüfung auf `enabled: true` setzen. Die derzeit
+aktiven Quellen (EZB, Fed) sind `legal_class: A` — amtlich bzw. US-Bundeswerk (17 U.S.C. § 105).
 
 ## Quellenstrategie (DACH)
 - Kommerzielle Premium-Qualitätspresse (Spiegel, SZ, Zeit, FAZ, Welt, Handelsblatt ...) sperrt

@@ -41,9 +41,19 @@ management:
           # Readiness inkl. DB-Check.
           include: readinessState,db
 
-# Ingest-Konfiguration (nur unter Profil `ingest` gebunden).
+# Ingest-Konfiguration (gdelt: nur unter Profil `ingest`; primary: unter `ingest` ODER `validate-sources`).
 lucoris:
   ingest:
+    # Primärquellen (RSS/Atom der Notenbanken, Statistikämter, ...). Welche Quellen abgerufen
+    # werden, steht NICHT hier, sondern im Routing-Manifest — hier nur das Wie des Abrufs.
+    primary:
+      # Ehrlicher Bot-User-Agent mit Kontaktseite. KEIN Spoofing (docs/ingest-and-sources.md).
+      user-agent: "LucorisBot/0.1 (+https://www.lucoris.com/bot)"
+      connect-timeout: 10s
+      request-timeout: 30s
+      # Routing-Manifest: id, handler, access.url, enabled, legal_class, attribution je Quelle.
+      manifest: "primary-sources/lucoris-pulse-primary-sources.json"
+
     gdelt:
       # Diagnose: am Ende eines Tageslaufs ALLE vorgekommenen GKG-Themen-Codes mit Häufigkeit
       # und Marktrelevanz-Markierung loggen (hilft, das Set oben zu kuratieren). Später abschaltbar.

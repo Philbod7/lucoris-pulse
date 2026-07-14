@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Synthetische Atom-1.0-Fixture. Deckt ab, was die beiden echten RSS-Feeds NICHT liefern:
+  Atom-Struktur, <content> statt <description>, <updated> als Datums-Rückfall und xml:lang.
+-->
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="de">
+  <title>Beispiel-Atom-Feed</title>
+  <link href="https://example.org/"/>
+  <id>urn:uuid:0d5c2f3e-0000-4000-8000-000000000000</id>
+  <updated>2026-07-13T17:00:00Z</updated>
+
+  <!-- A: published gewinnt gegen updated; Volltext steht in <content>. -->
+  <entry>
+    <title>Atom A</title>
+    <link href="https://example.org/a"/>
+    <id>urn:uuid:aaaaaaaa-0000-4000-8000-000000000000</id>
+    <published>2026-07-13T19:00:00+02:00</published>
+    <updated>2026-07-13T20:00:00+02:00</updated>
+    <content type="html">&lt;p&gt;Volltext A&lt;/p&gt;</content>
+  </entry>
+
+  <!-- B: KEIN published -> updated muss einspringen. Text nur in <summary>. -->
+  <entry>
+    <title>Atom B</title>
+    <link href="https://example.org/b"/>
+    <id>urn:uuid:bbbbbbbb-0000-4000-8000-000000000000</id>
+    <updated>2026-07-12T08:30:00Z</updated>
+    <summary>Zusammenfassung B</summary>
+  </entry>
+
+  <!-- C: weder content noch summary -> rawSummary bleibt null. -->
+  <entry>
+    <title>Atom C</title>
+    <link href="https://example.org/c"/>
+    <id>urn:uuid:cccccccc-0000-4000-8000-000000000000</id>
+    <published>2026-07-11T00:00:00Z</published>
+  </entry>
+</feed>

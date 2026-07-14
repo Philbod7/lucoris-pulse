@@ -19,6 +19,8 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Rome wird vom Spring-Boot-BOM NICHT verwaltet -> Version explizit. -->
+        <rome.version>2.1.0</rome.version>
     </properties>
 
     <dependencies>
@@ -54,6 +56,14 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Primärquellen-Ingest: Rome liest RSS 2.0 UND Atom über dasselbe SyndFeed-Modell.
+             Bringt rome-utils und jdom2 transitiv mit. -->
+        <dependency>
+            <groupId>com.rometools</groupId>
+            <artifactId>rome</artifactId>
+            <version>${rome.version}</version>
         </dependency>
 
         <!-- Tests: JUnit 5 + Testcontainers gegen echtes PostgreSQL. -->

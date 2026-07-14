@@ -163,3 +163,53 @@ Nicht partitioniert, append-only -> unbegrenztes Wachstum (~ Anzahl Mentions + E
 Partitionierung oder ein Dedup-/Housekeeping-Job bleiben Option. `insertEvents` wird produktiv
 nicht mehr genutzt (Events-Schreiben läuft jetzt über `insertAtomic`, damit die P-Zeilen atomar
 mit den Events committen), bleibt aber Teil des Firehose-Ports.
+
+## 20. Primärquellen-Ingest: Manifest-Routing, Adapter je `handler`, ein `PrimaryEvent`
+Der Primärquellen-Kanal (Nr. 12) soll wachsen können, ohne dass jede neue Quelle den Ingest umbaut.
+-> Das Routing-Manifest (`src/main/resources/primary-sources/lucoris-pulse-primary-sources.json`)
+ist die einzige Quelle der Wahrheit darüber, WAS abgerufen wird (`enabled`, `access.url`,
+`legal_class`, `attribution`); der Code entscheidet nur das WIE. Jede Quelle nennt ihren `handler`;
+der `AdapterDispatcher` routet darüber an genau eine Adapter-Klasse. Alle Adapter emittieren
+denselben Typ `PrimaryEvent`. -> Eine neue Quelle ist entweder ein Registry-Eintrag (bei
+`generic_rss`: keine Zeile Code) oder genau eine neue Adapter-Klasse.
+- **Unbekannter `handler` wirft** (`UnsupportedOperationException`) statt still zu überspringen: eine
+  Quelle, die auf `enabled` steht und die niemand abruft, wäre ein unsichtbares Datenloch. Der
+  Usecase fängt pro Quelle ab, damit eine defekte Quelle die übrigen nicht mitreißt.
+- **`PrimaryEvent` trägt `legal_class` und `attribution` mit** (aus der Quelle durchgereicht), damit
+  das Rendering die Quellzeile (Institution + Datum + Deep-Link, ggf. Pflichtformel) bauen kann,
+  ohne erneut in die Registry zu greifen. `eventType` fehlt bewusst — Klassifikation ist Routing,
+  nicht Einlesen.
+- **Kein Auto-Start**: `IngestPrimarySourcesUsecase` ist weder `ApplicationRunner` noch `@Scheduled`.
+  Der Poller (`poll.mode`/`seconds`) kommt später und ruft ihn auf.
+
+## 21. RSS/Atom über Rome, hinter einem `FeedFetcher`-Port
+Feeds sind in der Praxis unsauber: der Fed-Feed beginnt mit einem UTF-8-BOM, der ECB-Feed hat gar
+keine XML-Deklaration und liefert keine `<description>`. -> Rome (`com.rometools:rome`, Version
+explizit — die Boot-BOM verwaltet sie NICHT) liest RSS 2.0 und Atom über dasselbe `SyndFeed`-Modell.
+- **Der Port liefert `byte[]`, nicht `String`.** Ein `new String(bytes, UTF_8)` vor dem Parser
+  scheitert an „Content is not allowed in prolog"; die Zeichensatz-/BOM-Auflösung gehört in Romes
+  `XmlReader`.
+- **`FeedFetcher` als eigener Port** (Adapter: `HttpFeedFetcher`, spiegelt `HttpGdeltSliceClient`):
+  `GenericRssAdapter` kennt dadurch keinen `HttpClient` — ein Netz-Zugriff aus einem Unit-Test ist
+  damit kompiliertechnisch unmöglich, nicht bloß ungetestet. Das ist die Zusicherung, dass der
+  Standard-Build offline bleibt.
+- **Datum**: Rome zuerst (`pubDate`/`published`/`dc:date`, dann Atoms `updated`), danach eine
+  tolerante Formatkette (`FeedDates`). Formate ohne Zonenangabe werden als UTC gelesen — eine
+  Annahme, aber die einzige, die nicht von der Server-Zeitzone abhängt. **Kein parsbares Datum oder
+  kein Link => Eintrag wird verworfen**, nie mit der Abrufzeit aufgefüllt (das erzeugte stillschweigend
+  falsche Zeitachsen).
+- **XXE**: Romes Härtung greift nur, wenn Rome selbst parst. Wir bauen das JDOM-`Document` selbst
+  (um an die Roh-Datumsangaben zu kommen) und stellen Doctypes/externe Entities daher selbst ab.
+- Romes `SyndFeed.getLanguage()` füllt sich nur aus dem RSS-Element `<language>`; bei Atom steht die
+  Sprache im Wurzel-Attribut `xml:lang` und wird separat gelesen.
+
+## 22. Profil `validate-sources` für die Load-Validierung der Registry
+Die Registry führt `confidence` (`verified` | `verify_endpoint` | `landing_only`) — eine Behauptung,
+die veraltet. -> `SourceLoadValidator` ruft jede aktivierte Quelle über den ECHTEN Ingest-Pfad
+(Dispatcher) ab und meldet Mismatches: als `verified` geführt, liefert aber nichts (URL umgezogen /
+403) bzw. funktioniert, ist aber noch nicht als geprüft eingetragen. -> Nur unter Profil
+`validate-sources` (`mvn spring-boot:run -Dspring-boot.run.profiles=validate-sources`); die Beans des
+Primärquellen-Pfads stehen unter `@Profile({"ingest","validate-sources"})` (ODER-Semantik).
+Der Validator ist der einzige `ApplicationRunner` — deshalb erreicht kein Standard-Test das Netz.
+Die `Clock` wird hier direkt gesetzt statt als Bean injiziert: `IngestConfig` definiert `ingestClock`
+nur unter Profil `ingest`, ein zweites Clock-Bean würde bei beiden aktiven Profilen kollidieren.
