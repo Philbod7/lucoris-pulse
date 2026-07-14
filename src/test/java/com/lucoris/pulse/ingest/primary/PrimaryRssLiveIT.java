@@ -46,9 +46,9 @@ class PrimaryRssLiveIT {
     private final PrimarySourceManifestLoader registry = new PrimarySourceManifestLoader(
             JsonMapper.builder().build(), "primary-sources/lucoris-pulse-primary-sources.json");
 
-    private final IngestPrimarySourcesUsecase usecase = usecase();
+    private final RobotsGatedAdapter gatedAdapter = gatedAdapter();
 
-    private IngestPrimarySourcesUsecase usecase() {
+    private RobotsGatedAdapter gatedAdapter() {
         PrimarySourceProperties props = new PrimarySourceProperties();
         props.setConnectTimeout(Duration.ofSeconds(10));
         props.setRequestTimeout(Duration.ofSeconds(30));
@@ -58,14 +58,14 @@ class PrimaryRssLiveIT {
 
         // Der Live-Test läuft durch DASSELBE Gate wie die Produktion — er darf das Sicherheitsnetz
         // nicht umgehen. Nebeneffekt: er prüft gleich mit, ob die echten robots.txt der aktivierten
-        // Quellen uns den Feed-Pfad tatsächlich erlauben.
+        // Quellen uns den Feed-Pfad tatsächlich erlauben. Persistenz ist hier bewusst außen vor
+        // (kein Spring, keine DB) — den vollen Pfad inkl. Speichern prüft PrimaryIngestLiveIT.
         RobotsGate gate = new CachingRobotsGate(
                 new HttpPolicyFetcher(props), JsonMapper.builder().build(), props.getUserAgent(),
                 props.getRobotsSuccessTtl(), props.getRobotsFailureTtl(), props.getRobotsCacheMaxHosts(),
                 Clock.systemUTC(), props.getInvitationMaxAge());
 
-        return new IngestPrimarySourcesUsecase(
-                registry, new RobotsGatedAdapter(dispatcher, gate, Clock.systemUTC()));
+        return new RobotsGatedAdapter(dispatcher, gate, Clock.systemUTC());
     }
 
     @Test
@@ -95,13 +95,16 @@ class PrimaryRssLiveIT {
         Map<String, IngestSource> byId = registry.enabledSources().stream()
                 .collect(Collectors.toMap(IngestSource::id, source -> source));
 
-        List<PrimaryEvent> events = usecase.run();
+        List<FeedItem> events = new java.util.ArrayList<>();
+        for (IngestSource source : registry.enabledSources()) {
+            events.addAll(gatedAdapter.fetch(source));
+        }
 
         assertThat(events).isNotEmpty();
 
-        // JEDE aktivierte Quelle muss etwas geliefert haben. Eine, die nichts bringt, fällt hier auf:
-        // usecase.run() protokolliert einen kaputten Feed nur und macht weiter.
-        assertThat(events).extracting(PrimaryEvent::sourceId)
+        // JEDE aktivierte Quelle muss etwas geliefert haben. Eine, die nichts bringt, fällt hier
+        // auf: ein nicht abrufbarer Feed liefert eine leere Liste und fehlt dann unten.
+        assertThat(events).extracting(FeedItem::sourceId)
                 .as("aktivierte Quelle(n) ohne einen einzigen Eintrag")
                 .containsAll(byId.keySet());
 

@@ -38,7 +38,7 @@
       <description>Wird verworfen</description>
     </item>
 
-    <!-- 4: weder link noch guid -> muss verworfen werden (url ist Pflicht am PrimaryEvent). -->
+    <!-- 4: weder link noch guid -> muss verworfen werden (url ist Pflicht am FeedItem). -->
     <item>
       <title>Ohne Link</title>
       <pubDate>Fri, 10 Jul 2026 12:00:00 GMT</pubDate>

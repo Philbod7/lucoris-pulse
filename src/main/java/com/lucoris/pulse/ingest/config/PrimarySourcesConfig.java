@@ -1,7 +1,9 @@
 package com.lucoris.pulse.ingest.config;
 
 import com.lucoris.pulse.ingest.primary.AdapterDispatcher;
+import com.lucoris.pulse.ingest.primary.FeedItemStore;
 import com.lucoris.pulse.ingest.primary.GenericRssAdapter;
+import com.lucoris.pulse.ingest.primary.SourceStateStore;
 import com.lucoris.pulse.ingest.primary.TdmAwareFeedFetcher;
 import com.lucoris.pulse.ingest.primary.adapter.HttpFeedFetcher;
 import com.lucoris.pulse.ingest.primary.IngestPrimarySourcesUsecase;
@@ -94,10 +96,20 @@ public class PrimarySourcesConfig {
         return new RobotsGatedAdapter(adapterDispatcher, robotsGate, Clock.systemUTC());
     }
 
+    /**
+     * Nur unter {@code ingest}: die Stores (StatelessSession) existieren unter reinem
+     * {@code validate-sources} nicht — der Validator braucht den Usecase auch nicht, er nimmt
+     * den gated Adapter direkt.
+     */
     @Bean
+    @Profile("ingest")
     IngestPrimarySourcesUsecase ingestPrimarySourcesUsecase(
-            PrimarySourceManifestLoader primarySourceManifestLoader, RobotsGatedAdapter gatedSourceAdapter) {
-        return new IngestPrimarySourcesUsecase(primarySourceManifestLoader, gatedSourceAdapter);
+            PrimarySourceManifestLoader primarySourceManifestLoader,
+            RobotsGatedAdapter gatedSourceAdapter,
+            FeedItemStore feedItemStore,
+            SourceStateStore sourceStateStore) {
+        return new IngestPrimarySourcesUsecase(primarySourceManifestLoader, gatedSourceAdapter,
+                feedItemStore, sourceStateStore, Clock.systemUTC());
     }
 
     /**

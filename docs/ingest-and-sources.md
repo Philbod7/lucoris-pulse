@@ -125,7 +125,7 @@ Fakt (aus Quelle) und Einordnung (didaktischer Rahmen) getrennt -> KEINE Handlun
 ## Primärquellen-Abruf (zweite Ingest-Spur)
 
 Die zweite Spur neben GDELT: primäre Ausgabestellen (Notenbanken, Statistikämter, Regulatoren)
-liefern den Fakt selbst, nicht nur den Hinweis darauf. Details: `docs/decisions.md` Nr. 20–22.
+liefern den Fakt selbst, nicht nur den Hinweis darauf. Details: `docs/decisions.md` Nr. 20–26.
 
 - **Routing-Manifest** `src/main/resources/primary-sources/lucoris-pulse-primary-sources.json` —
   die einzige Quelle der Wahrheit darüber, WAS abgerufen wird. Der Code entscheidet nur das WIE.
@@ -133,10 +133,39 @@ liefern den Fakt selbst, nicht nur den Hinweis darauf. Details: `docs/decisions.
 - **Routing**: `AdapterDispatcher` wählt anhand von `handler` die Adapter-Klasse. Heute verdrahtet:
   `generic_rss` (RSS 2.0 + Atom via Rome). Ein unbekannter Handler wirft — eine aktivierte Quelle,
   die niemand abruft, wäre ein unsichtbares Datenloch.
-- **Ausgabe**: alle Adapter emittieren `PrimaryEvent` (inkl. `legal_class` und `attribution` aus der
-  Quelle, damit das Rendering die Quellzeile bauen kann).
-- **Kein Auto-Start**: `IngestPrimarySourcesUsecase` wird aufgerufen, er startet nicht von selbst.
-- **Aktiv**: derzeit nur `ecb-press` und `fed-monetary` (beide `legal_class: A`, `verified`).
+- **Ausgabe**: alle Adapter emittieren `FeedItem` — die Feed-MELDUNG, bewusst nicht „Event"
+  (ADR 25) — inkl. `guid`, `legal_class` und `attribution` aus der Quelle, damit Dedup und
+  Rendering ohne erneuten Registry-Griff auskommen.
+- **Persistenz & Dedup**: `IngestPrimarySourcesUsecase.runSource()` speichert nach
+  `primary_feed_item`, quellenübergreifend dedupliziert über die guid (Fallback: normalisierter
+  Link, `DedupKeys`); wiederholte Läufe sind idempotent. Betriebszustand je Quelle (Fehler in
+  Folge, letzte Zähler) in `primary_source_state`. Nur Feed-Daten — KEIN Volltext-Abruf der
+  verlinkten Seiten (ContentFetcher ist ein späteres Increment mit eigenen Regeln).
+  Schema: `docs/data-model.md`, Entscheidung: ADR 25.
+- **Kein Auto-Start**: `IngestPrimarySourcesUsecase` wird aufgerufen, er startet nicht von
+  selbst — außer der Poller (unten) ist per Property freigeschaltet.
+- **Aktiv**: welche Quellen `enabled: true` tragen, sagt allein das Manifest — die Anzahl ändert
+  sich laufend. Konsistenzregel statt fixer Liste: jede enabled-Quelle hat einen implementierten
+  Handler (`PrimarySourceManifestLoaderTest`).
+
+### Periodischer Poller
+`PrimaryPollingConfig` (Profil `ingest`) startet EINEN `@Scheduled`-Tick (fixedDelay,
+`poll.tick-interval`, Default 30s), der fällige Quellen sequenziell über `runSource()` abruft.
+Fällig = `last_attempt_at` (aus `primary_source_state`) + Manifest-`poll.seconds` erreicht;
+das effektive Intervall respektiert zusätzlich den robots-`Crawl-delay` (max von beidem).
+`poll.mode=calendar` (destatis-press) überspringt der Intervall-Poller — Kalender-Polling ist
+ein späteres Increment; der explizite `runAll()` ruft solche Quellen weiterhin ab.
+
+**Default AUS.** Profil-Gating allein genügt nicht (mehrere ITs aktivieren `ingest`); erst die
+Property erzeugt den Scheduler samt `@EnableScheduling`:
+
+```
+LUCORIS_INGEST_PRIMARY_POLL_ENABLED=true
+```
+
+Fehler einer Quelle (Netz, Parse, robots-Verbot, fehlender Handler) stoppen die übrigen nicht;
+der Zustand steht danach in `primary_source_state` (`consecutive_failures`, `last_error`).
+Details: ADR 26.
 
 ### Load-Validierung der Registry
 `confidence` im Manifest ist eine Behauptung, die veraltet (URL zieht um, Herausgeber blockt).
@@ -149,11 +178,16 @@ mvn spring-boot:run -Dspring-boot.run.profiles=validate-sources
 Er meldet: als `verified` geführt, liefert aber nichts (URL/Zugang prüfen) bzw. funktioniert, ist
 aber noch nicht als geprüft eingetragen (`confidence` hochstufbar). Läuft NIE im Standard-Build.
 
-### Live-Test gegen die echten Feeds
+### Live-Tests gegen die echten Feeds
 Vom `mvn verify` per Default ausgeschlossen (wie die GDELT-Live-ITs, per Env-Variable):
 
 ```
+# Fetch-only (ohne Spring/DB): robots erlaubt jede enabled-Quelle, jeder Feed liefert
 PRIMARY_LIVE_IT=true mvn -Dit.test=PrimaryRssLiveIT verify
+
+# Voller Persistenz-Pfad (Testcontainers-DB): zwei Läufe, Summary je Quelle
+# (gefetcht/neu/dedupliziert/Fehler), zweiter Lauf beweist die Idempotenz
+PRIMARY_LIVE_IT=true mvn -Dit.test=PrimaryIngestLiveIT verify
 ```
 
 ### Kandidaten-Probe: eine benannte Quelle antippen

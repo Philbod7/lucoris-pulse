@@ -24,7 +24,7 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Das Werkzeug für {@code confidence: verify_endpoint}: das Manifest verlangt „beim Einbau einmal
  * antippen und fixieren", und genau das passiert hier über den ECHTEN Ingest-Pfad (HTTP → Rome →
- * {@link PrimaryEvent}), nicht über einen zweiten, womöglich abweichenden Parser. Anders als
+ * {@link FeedItem}), nicht über einen zweiten, womöglich abweichenden Parser. Anders als
  * {@link PrimaryRssLiveIT} und {@code SourceLoadValidator} liest diese Klasse bewusst
  * {@code load().ingestSources()} statt {@code enabledSources()} — eine Quelle nur zum Antippen
  * scharf zu schalten wäre falsch herum.
@@ -86,10 +86,10 @@ class PrimarySourceProbeIT {
                 source.id(), source.handler(), source.confidence(), source.enabled(),
                 source.legalClass(), source.access().url());
 
-        List<PrimaryEvent> events = dispatcher.fetch(source);
+        List<FeedItem> events = dispatcher.fetch(source);
 
         // Der eigentliche Zweck: den Abruf SEHEN.
-        for (PrimaryEvent event : events) {
+        for (FeedItem event : events) {
             log.info("  {} — {} ({})", event.publishedAt(), event.title(), event.url());
         }
 

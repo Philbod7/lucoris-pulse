@@ -37,7 +37,7 @@ public final class RobotsGatedAdapter implements SourceAdapter {
     }
 
     @Override
-    public List<PrimaryEvent> fetch(IngestSource source) {
+    public List<FeedItem> fetch(IngestSource source) {
         URI url = URI.create(source.access().url());
         RobotsGate.Decision decision = gate.check(new FetchIntent(
                 source.id(), url, source.access().type(), source.expressInvitation()));

@@ -196,3 +196,39 @@ WHERE u1.url = :url AND u2.url <> u1.url;
   Firehose). Der `@IdClass(UrlIndexId)` über die drei Spalten ist nur mapping-seitige Identität
   für `StatelessSession.insert`, erzwingt DB-seitig KEINE Eindeutigkeit. Konsumenten dedupen per
   `DISTINCT`. Nicht partitioniert. Details/Trade-offs: ADR 19.
+
+## Primärquellen-Schicht (primary_feed_item, primary_source_state) — V3
+
+Persistenz der zweiten Ingest-Spur (Primärquellen, `docs/ingest-and-sources.md`). Zwei Tabellen:
+
+**`primary_feed_item`** — eine Zeile je Feed-MELDUNG (RSS/Atom-Item). Bewusst nicht „event":
+das reale Ereignis wird später von einer übergreifenden Resolver-Entität abgebildet, die mehrere
+Meldungen clustert und über `url_index` (URL ↔ `global_event_id`) mit GDELT verbindet — dafür
+werden die rohe `url` und der normalisierte `dedup_key` gespeichert (Join-Anker).
+- **Dedup quellenübergreifend** über `dedup_key` (UNIQUE): URL-förmige Feed-guid normalisiert,
+  sonst normalisierter Link (Tracking-Parameter entfernt, Fragment weg, Scheme/Host lowercase —
+  Regeln in `DedupKeys`). NICHT `source_id + url`: dieselbe Meldung erscheint in überlappenden
+  Feeds (bmf-presse/bmf-finanzmarkt, guid = Artikel-URL) und wird EINMAL gespeichert; `source_id`
+  nennt die ERSTE liefernde Quelle. Opake guids („12345", `tag:`/`urn:`) werden nie roh verwendet
+  (Kollisionsgefahr zwischen Herausgebern) — der Link dedupliziert dann.
+- Rohe `guid` als eigene Spalte: Audit-Spur der Schlüsselberechnung, erlaubt Re-Keying bei
+  geänderten Normalisierungsregeln.
+- Surrogat-PK aus `primary_feed_item_seq` (INCREMENT 50, pooled-lo — wie alle Surrogate);
+  der lange Text-`dedup_key` taugt nicht als PK.
+- Attribution FLACH (`attribution_required/formula/modified_note`) statt jsonb: fixes
+  3-Felder-Schema, abfragbar ohne Sondertypen.
+- KEINE Partitionierung: 6 Feeds ergeben Zehner-Zeilen/Tag; bei einem Massen-Handler
+  (sec_edgar) neu bewerten.
+
+**`primary_source_state`** — eine Zeile je Manifest-Quelle (natürlicher PK `source_id`, keine
+Sequence), bei jedem Lauf überschrieben: Betriebszustand des Abrufens.
+- `consecutive_failures`, `last_error`, `last_error_at`: Fehlerzustand persistent sichtbar.
+- `last_attempt_at`: restart-fester Fälligkeitsanker des Pollers. `next_due_at` wird BEWUSST
+  NICHT persistiert — ableitbar aus `last_attempt_at` + Manifest-Intervall; das Manifest bleibt
+  die einzige Quelle des Rhythmus, eine Intervall-Änderung wirkt sofort.
+- `last_fetched/new/deduped`: Zähler des letzten Erfolgslaufs — eine leise gestorbene Quelle
+  (plötzlich 0) fällt auf.
+
+Geschrieben werden beide über StatelessSession-Adapter (`StatelessSessionFeedItemStore`,
+`StatelessSessionSourceStateStore`); Dedup-Mechanik ist select-then-insert, der UNIQUE-Index das
+harte Sicherheitsnetz. Details/Trade-offs: ADR 25/26.

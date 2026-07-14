@@ -29,7 +29,7 @@ class RobotsGatedAdapterTest {
         RobotsGatedAdapter adapter = new RobotsGatedAdapter(
                 delegate, intent -> RobotsGate.Decision.allow("robots.txt erlaubt es"), CLOCK);
 
-        List<PrimaryEvent> events = adapter.fetch(source("ecb-press"));
+        List<FeedItem> events = adapter.fetch(source("ecb-press"));
 
         assertThat(delegate.received).containsExactly("ecb-press");
         assertThat(events).hasSize(1);
@@ -77,10 +77,10 @@ class RobotsGatedAdapterTest {
         private final List<String> received = new ArrayList<>();
 
         @Override
-        public List<PrimaryEvent> fetch(IngestSource source) {
+        public List<FeedItem> fetch(IngestSource source) {
             received.add(source.id());
-            return List.of(new PrimaryEvent(
-                    source.id(), source.institution(), "Titel", "https://example.org/1",
+            return List.of(new FeedItem(
+                    source.id(), source.institution(), "Titel", "https://example.org/1", null,
                     Instant.parse("2026-07-13T17:00:00Z"), null, "en",
                     Instant.parse("2026-07-14T09:00:00Z"), source.legalClass(), source.attribution()));
         }

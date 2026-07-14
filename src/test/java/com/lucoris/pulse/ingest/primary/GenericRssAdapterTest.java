@@ -51,11 +51,11 @@ class GenericRssAdapterTest {
 
     @Test
     void ecbFeedWithoutXmlDeclarationParsesAndNormalisesToUtc() {
-        List<PrimaryEvent> events = adapter.fetch(source("ecb-press"));
+        List<FeedItem> events = adapter.fetch(source("ecb-press"));
 
         assertThat(events).hasSize(15);
 
-        PrimaryEvent first = events.getFirst();
+        FeedItem first = events.getFirst();
         assertThat(first.sourceId()).isEqualTo("ecb-press");
         assertThat(first.institution()).isEqualTo("European Central Bank (EZB)");
         assertThat(first.title()).isEqualTo("Piero Cipollone: Interview with Jornal de Negocios");
@@ -63,6 +63,10 @@ class GenericRssAdapterTest {
                 .isEqualTo("https://www.ecb.europa.eu//press/inter/date/2026/html/ecb.in260713~d928475792.en.html");
         assertThat(first.language()).isEqualTo("en");
         assertThat(first.fetchedAt()).isEqualTo(FETCHED_AT);
+
+        // Die guid kommt WÖRTLICH an (hier: guid = Artikel-URL) — sie ist die Dedup-Grundlage.
+        assertThat(first.guid())
+                .isEqualTo("https://www.ecb.europa.eu//press/inter/date/2026/html/ecb.in260713~d928475792.en.html");
 
         // pubDate ist "Mon, 13 Jul 2026 19:00:00 +0200" -> nach UTC verschoben, nicht bloß übernommen.
         assertThat(first.publishedAt()).isEqualTo(Instant.parse("2026-07-13T17:00:00Z"));
@@ -82,7 +86,7 @@ class GenericRssAdapterTest {
     void ecbAttributionIsCarriedIntoEveryEventForTheLaterSourceLine() {
         // Das Rendering muss später "Quelle: Europaeische Zentralbank, ..." bauen können, ohne
         // erneut in die Registry zu greifen.
-        List<PrimaryEvent> events = adapter.fetch(source("ecb-press"));
+        List<FeedItem> events = adapter.fetch(source("ecb-press"));
 
         assertThat(events).allSatisfy(e -> {
             assertThat(e.attribution()).isNotNull();
@@ -94,13 +98,13 @@ class GenericRssAdapterTest {
 
     @Test
     void fedFeedWithUtf8BomParsesAndHasNoAttribution() {
-        List<PrimaryEvent> events = adapter.fetch(source("fed-monetary"));
+        List<FeedItem> events = adapter.fetch(source("fed-monetary"));
 
         // Der Feed beginnt mit EF BB BF. Wäre er als String statt als Bytes durchgereicht worden,
         // stünde hier "Content is not allowed in prolog" und die Liste wäre leer.
         assertThat(events).hasSize(15);
 
-        PrimaryEvent first = events.getFirst();
+        FeedItem first = events.getFirst();
         assertThat(first.sourceId()).isEqualTo("fed-monetary");
         assertThat(first.publishedAt()).isEqualTo(Instant.parse("2026-07-09T19:00:00Z"));
         assertThat(first.url())
@@ -111,40 +115,45 @@ class GenericRssAdapterTest {
         assertThat(events).allSatisfy(e -> {
             assertThat(e.legalClass()).isEqualTo("A");
             assertThat(e.attribution()).isNull(); // fed-monetary hat keinen attribution-Block
+            // Der Fed-Feed hat KEIN <guid> — Rome füllt die uri dann aus dem Link. Für die
+            // Dedup ist das gleichwertig: guid und url normalisieren auf denselben Schlüssel.
+            assertThat(e.guid()).isEqualTo(e.url());
         });
     }
 
     @Test
     void atomFeedIsReadThroughTheSameAdapter() {
-        List<PrimaryEvent> events = adapter.fetch(syntheticSource("atom-demo", ATOM));
+        List<FeedItem> events = adapter.fetch(syntheticSource("atom-demo", ATOM));
 
         assertThat(events).hasSize(3);
-        assertThat(events).extracting(PrimaryEvent::title).containsExactly("Atom A", "Atom B", "Atom C");
+        assertThat(events).extracting(FeedItem::title).containsExactly("Atom A", "Atom B", "Atom C");
         assertThat(events).allSatisfy(e -> assertThat(e.language()).isEqualTo("de")); // xml:lang
 
-        PrimaryEvent a = events.get(0);
+        FeedItem a = events.get(0);
         assertThat(a.publishedAt()).isEqualTo(Instant.parse("2026-07-13T17:00:00Z")); // published, nicht updated
         assertThat(a.rawSummary()).isEqualTo("<p>Volltext A</p>"); // aus <content>
+        // Atoms <id> des EINTRAGS (nicht des Feeds) kommt als guid an — auch wenn sie opak ist.
+        assertThat(a.guid()).isEqualTo("urn:uuid:aaaaaaaa-0000-4000-8000-000000000000");
 
-        PrimaryEvent b = events.get(1);
+        FeedItem b = events.get(1);
         assertThat(b.publishedAt()).isEqualTo(Instant.parse("2026-07-12T08:30:00Z")); // updated springt ein
         assertThat(b.rawSummary()).isEqualTo("Zusammenfassung B"); // aus <summary>
 
-        PrimaryEvent c = events.get(2);
+        FeedItem c = events.get(2);
         assertThat(c.rawSummary()).isNull(); // weder content noch summary
     }
 
     @Test
     void contentEncodedWinsOverDescriptionAndExoticDatesAreCaught() {
-        List<PrimaryEvent> events = adapter.fetch(syntheticSource("edge-demo", EDGE));
+        List<FeedItem> events = adapter.fetch(syntheticSource("edge-demo", EDGE));
 
         // Vier Items, zwei davon unbrauchbar -> zwei Ereignisse.
         assertThat(events).hasSize(2);
 
-        PrimaryEvent withContent = events.get(0);
+        FeedItem withContent = events.get(0);
         assertThat(withContent.rawSummary()).isEqualTo("<p>Volltext aus content:encoded</p>");
 
-        PrimaryEvent exoticDate = events.get(1);
+        FeedItem exoticDate = events.get(1);
         // "2026-07-10 06:15:00" — daran scheitert Romes Parser, die FeedDates-Kette fängt es auf.
         assertThat(exoticDate.publishedAt()).isEqualTo(Instant.parse("2026-07-10T06:15:00Z"));
         assertThat(exoticDate.rawSummary()).isEqualTo("Nur description");
@@ -152,11 +161,11 @@ class GenericRssAdapterTest {
 
     @Test
     void entriesWithoutDateOrWithoutLinkAreDroppedNotFakedUp() {
-        List<PrimaryEvent> events = adapter.fetch(syntheticSource("edge-demo", EDGE));
+        List<FeedItem> events = adapter.fetch(syntheticSource("edge-demo", EDGE));
 
         // Das Item ohne Datum darf NICHT mit der Abrufzeit aufgefüllt werden — das erzeugte eine
         // falsche Zeitachse. Und das Item ohne Link/guid hat keinen Deep-Link, ist also wertlos.
-        assertThat(events).extracting(PrimaryEvent::title)
+        assertThat(events).extracting(FeedItem::title)
                 .doesNotContain("Ohne jedes Datum", "Ohne Link");
         assertThat(events).noneSatisfy(e -> assertThat(e.publishedAt()).isEqualTo(FETCHED_AT));
     }

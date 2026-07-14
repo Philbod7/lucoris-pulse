@@ -45,6 +45,38 @@ public class PrimarySourceProperties {
      */
     private Duration invitationMaxAge = Duration.ofDays(180);
 
+    /** Der periodische Poller ({@code lucoris.ingest.primary.poll.*}). */
+    private final Poll poll = new Poll();
+
+    /** Konfiguration des Pollers. Default AUS — Tests dürfen nie von selbst ins Netz. */
+    public static class Poll {
+
+        /** Schaltet den {@code @Scheduled}-Poller frei. Default {@code false} (auch für Tests). */
+        private boolean enabled = false;
+
+        /**
+         * Abstand zwischen zwei Poll-Ticks (fixedDelay). Der Tick prüft nur die Fälligkeit —
+         * WIE OFT eine Quelle tatsächlich abgerufen wird, bestimmt ihr Manifest-Intervall.
+         */
+        private Duration tickInterval = Duration.ofSeconds(30);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public Duration getTickInterval() {
+            return tickInterval;
+        }
+
+        public void setTickInterval(Duration tickInterval) {
+            this.tickInterval = tickInterval;
+        }
+    }
+
     public String getUserAgent() {
         return userAgent;
     }
@@ -107,5 +139,9 @@ public class PrimarySourceProperties {
 
     public void setInvitationMaxAge(Duration invitationMaxAge) {
         this.invitationMaxAge = invitationMaxAge;
+    }
+
+    public Poll getPoll() {
+        return poll;
     }
 }

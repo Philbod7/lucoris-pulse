@@ -345,3 +345,53 @@ sauber: § 44b UrhG verbietet das *Mining*, nicht den Abruf — der Abruf war du
 - **Crawl-delay:** BMF setzt 180 s. Sich auf das Wohlwollen eines Herausgebers zu berufen und
   zugleich seine Abrufgrenze zu missachten, wäre der peinlichste denkbare Widerspruch. Der
   `SourceLoadValidator` warnt jetzt, wenn `poll.seconds < Crawl-delay` (BMF: 900 > 180, hält).
+
+## 25. Feed-Meldungen persistieren: `primary_feed_item`, Dedup über guid/Link, „FeedItem" statt „Event"
+Die vom Primärquellen-Ingest gelieferten Meldungen mussten gespeichert werden (V3) — mit der
+Anforderung, dass dieselbe Meldung aus überlappenden Feeds nur einmal landet und wiederholte
+Läufe idempotent sind.
+- **Benennung:** Der Typ heißt jetzt `FeedItem` (vorher `PrimaryEvent`), Tabelle
+  `primary_feed_item`. Gespeichert wird die MELDUNG (das RSS/Atom-Item), nicht das reale
+  Ereignis: mehrere Meldungen zum selben Ereignis bleiben getrennte Zeilen — ihre
+  Zusammenführung (auch mit GDELT über `url_index` ↔ `global_event_id`) ist eine spätere
+  Resolver-Entität. „Event" bleibt dafür und für GDELT reserviert; die GDELT-Seite ist vom
+  Rename unberührt.
+- **Dedup-Schlüssel** (`DedupKeys`, pures POJO): URL-förmige Feed-guid normalisiert, sonst
+  normalisierter Link. NICHT `source_id + url` — bmf-presse und bmf-finanzmarkt liefern dieselbe
+  Meldung mit derselben guid (= Artikel-URL). Opake guids nie roh (zwei Herausgeber können
+  „12345" vergeben). Normalisierung entfernt nur nachweislich Identitäts-irrelevantes
+  (utm_*/fbclid/... , Fragment, Host-Case, Default-Ports); Pfad und übrige Query bleiben.
+  Rohe guid + rohe URL werden mitgespeichert (Audit, Re-Keying).
+- **Mechanik: select-then-insert** in einer StatelessSession-Transaktion je Quelle, kein
+  `ON CONFLICT`: Instanz ist single, Poller sequenziell — kein Insert-Race; exakte
+  neu/dedupliziert-Zähler fallen gratis ab; konsistent mit dem GDELT-Muster (`isFileProcessed`,
+  not-exists-Backfill, ADR 18/19). Der UNIQUE-Index auf `dedup_key` ist das harte Sicherheitsnetz:
+  schlägt er je an, scheitert nur der Batch dieser Quelle (als Quellen-Fehler verbucht), der
+  nächste Lauf heilt es.
+- **Attribution flach** (3 Spalten) statt jsonb; Surrogat-Sequence INCREMENT 50; keine
+  Partitionierung bei diesem Volumen. Schema: `docs/data-model.md`.
+
+## 26. Periodischer Quellen-Poller: EIN fixedDelay-Tick, Property-Gate default AUS, Zustand je Quelle
+Die enabled-Quellen sollen gemäß ihrem Manifest-`poll`-Intervall automatisch abgerufen werden —
+abschaltbar, und in Tests darf NIE von selbst Netz angefasst werden.
+- **Ein einziger `@Scheduled(fixedDelay)`-Tick** (Default 30s, `PrimaryPollingConfig`) statt
+  per-Quelle-Trigger: 6 Quellen brauchen keine Parallelität, sequenziell ist die natürliche
+  Höflichkeit, und die Fälligkeit (`PollSchedule`) rechnet aus persistiertem `last_attempt_at`
+  + Manifest-Intervall — überlebt damit Restarts (kein Hämmern bei jedem Deploy). `fixedDelay`
+  statt `fixedRate`: Läufe überlappen nie.
+- **Doppelt verriegelt:** `@Profile("ingest")` UND `@ConditionalOnProperty(poll.enabled,
+  default AUS)`. Profil-Gating allein genügt NICHT — mehrere ITs aktivieren `ingest`
+  (`GdeltIngestContextIT`, `FeedItemStoreIT`, ...). `@EnableScheduling` lebt NUR auf dieser
+  konditionalen Klasse: ohne Property existiert kein Scheduler-Thread. Produktion:
+  `LUCORIS_INGEST_PRIMARY_POLL_ENABLED=true`.
+- **Effektives Intervall = max(poll.seconds, robots Crawl-delay)** über
+  `RobotsGate.crawlDelaySeconds`: wer sich auf das Wohlwollen eines Herausgebers beruft
+  (ADR 24), verletzt nicht seine Abrufgrenze.
+- **`poll.mode=calendar` (destatis-press) ist für den Intervall-Poller nie fällig** —
+  Kalender-Polling ist ein späteres Increment; der explizite Einmal-Lauf (`runAll()`) ruft
+  solche Quellen weiterhin ab. `interval` ohne `seconds` wird als Fehlkonfiguration geloggt
+  statt als 0s-Hot-Loop gepollt.
+- **Fehlerisolation + Buchführung im Usecase, nicht im Poller:** `runSource` wirft nie, schreibt
+  Erfolg/Fehler nach `primary_source_state` (`consecutive_failures`, `last_error`) — Einmal-Lauf
+  und Poller teilen dieselbe Buchführung; eine tote Quelle stoppt den Tick nie und ist in der DB
+  sichtbar statt nur im Log.

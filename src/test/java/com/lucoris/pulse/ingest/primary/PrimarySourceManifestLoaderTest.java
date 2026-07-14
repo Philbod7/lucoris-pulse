@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import com.lucoris.pulse.ingest.primary.robots.ExpressInvitation;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -21,16 +22,62 @@ class PrimarySourceManifestLoaderTest {
     private final PrimarySourceManifestLoader loader =
             new PrimarySourceManifestLoader(JsonMapper.builder().build(), MANIFEST);
 
+    /**
+     * Handler, für die ein Adapter existiert und im {@code AdapterDispatcher} verdrahtet ist
+     * (Routing-Tabelle in {@code PrimarySourcesConfig}). Kommt ein Adapter dazu, wächst dieses
+     * Set — der Test darunter erzwingt, dass keine Quelle VOR ihrem Adapter freigeschaltet wird.
+     */
+    private static final Set<String> IMPLEMENTED_HANDLERS = Set.of(GenericRssAdapter.HANDLER);
+
     @Test
-    void manifestLoadsAndExposesExactlyTheTwoEnabledSources() {
+    void manifestLoadsAndEnabledSourcesAreConsistent() {
+        // Bewusst KEINE fixe Quellen-Anzahl: welche Quellen enabled sind, ändert sich laufend.
+        // Stabil sind die Konsistenzregeln, die jede enabled-Quelle erfüllen muss.
         Manifest manifest = loader.load();
 
         assertThat(manifest.version()).isNotBlank();
         assertThat(manifest.ingestSources()).isNotEmpty();
 
-        assertThat(loader.enabledSources())
-                .extracting(IngestSource::id)
-                .containsExactly("ecb-press", "fed-monetary");
+        List<IngestSource> enabled = loader.enabledSources();
+        assertThat(enabled).isNotEmpty();
+
+        // Jede enabled-Quelle muss einen implementierten Handler haben — eine Quelle ohne
+        // Adapter wäre ein unsichtbares Datenloch (der Dispatcher wirft erst zur Laufzeit).
+        assertThat(enabled)
+                .allSatisfy(s -> assertThat(s.handler())
+                        .as("Quelle %s hat keinen implementierten Handler", s.id())
+                        .isIn(IMPLEMENTED_HANDLERS));
+    }
+
+    @Test
+    void sourceIdsAreUnique() {
+        List<IngestSource> sources = loader.load().ingestSources();
+
+        assertThat(sources).extracting(IngestSource::id).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void everySourceHasACoherentPollBlock() {
+        // interval braucht seconds (sonst gäbe es keinen Rhythmus), calendar braucht ref
+        // (sonst gäbe es keinen Kalender). Gilt für ALLE Quellen, nicht nur enabled —
+        // ein kaputter Poll-Block soll beim Eintragen auffallen, nicht beim Freischalten.
+        List<IngestSource> sources = loader.load().ingestSources();
+
+        assertThat(sources).allSatisfy(s -> {
+            assertThat(s.poll().mode())
+                    .as("Quelle %s: poll.mode fehlt oder unbekannt", s.id())
+                    .isIn("interval", "calendar");
+            switch (s.poll().mode()) {
+                case "interval" -> assertThat(s.poll().seconds())
+                        .as("Quelle %s: poll.mode=interval ohne seconds", s.id())
+                        .isNotNull()
+                        .isPositive();
+                case "calendar" -> assertThat(s.poll().ref())
+                        .as("Quelle %s: poll.mode=calendar ohne ref", s.id())
+                        .isNotBlank();
+                default -> throw new AssertionError("unreachable");
+            }
+        });
     }
 
     @Test

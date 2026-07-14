@@ -68,6 +68,15 @@ lucoris:
       # Quelle wird wieder gesperrt, bis jemand sie erneut feststellt. Kein Override-Flag.
       invitation-max-age: 180d
 
+      # Periodischer Poller: ruft fällige Quellen gemäß ihrem Manifest-Intervall ab.
+      # Default AUS — Profil-Gating allein genügt nicht (Tests aktivieren `ingest`); erst
+      # LUCORIS_INGEST_PRIMARY_POLL_ENABLED=true erzeugt den Scheduler (PrimaryPollingConfig).
+      poll:
+        enabled: false
+        # Abstand zwischen zwei Fälligkeits-Prüfungen (fixedDelay). WIE OFT eine Quelle
+        # tatsächlich abgerufen wird, bestimmt ihr poll.seconds im Manifest.
+        tick-interval: 30s
+
     gdelt:
       # Diagnose: am Ende eines Tageslaufs ALLE vorgekommenen GKG-Themen-Codes mit Häufigkeit
       # und Marktrelevanz-Markierung loggen (hilft, das Set oben zu kuratieren). Später abschaltbar.

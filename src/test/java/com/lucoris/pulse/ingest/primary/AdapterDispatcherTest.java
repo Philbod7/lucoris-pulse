@@ -19,7 +19,7 @@ class AdapterDispatcherTest {
     void genericRssIsRoutedToTheRssAdapter() {
         IngestSource ecb = source("ecb-press", "generic_rss");
 
-        List<PrimaryEvent> events = dispatcher.fetch(ecb);
+        List<FeedItem> events = dispatcher.fetch(ecb);
 
         assertThat(rss.received).containsExactly(ecb);
         assertThat(events).hasSize(1);
@@ -59,10 +59,10 @@ class AdapterDispatcherTest {
         private final List<IngestSource> received = new java.util.ArrayList<>();
 
         @Override
-        public List<PrimaryEvent> fetch(IngestSource source) {
+        public List<FeedItem> fetch(IngestSource source) {
             received.add(source);
-            return List.of(new PrimaryEvent(
-                    source.id(), source.institution(), "Titel", "https://example.org/1",
+            return List.of(new FeedItem(
+                    source.id(), source.institution(), "Titel", "https://example.org/1", null,
                     Instant.parse("2026-07-13T17:00:00Z"), null, "en",
                     Instant.parse("2026-07-14T09:00:00Z"), source.legalClass(), source.attribution()));
         }

@@ -26,14 +26,14 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Adapter für den Handler {@code generic_rss}: liest RSS 2.0 UND Atom über Romes gemeinsames
- * {@code SyndFeed}-Modell und normalisiert beides zu {@link PrimaryEvent}.
+ * {@code SyndFeed}-Modell und normalisiert beides zu {@link FeedItem}.
  *
  * <p>POJO ohne Spring-Annotationen. Der HTTP-Abruf steckt hinter {@link FeedFetcher} — dieser
  * Adapter kennt keinen {@code HttpClient} und kann daher im Unit-Test gar kein Netz erreichen.
  *
  * <p>Tolerant gegenüber der Realität der Feeds: der ECB-Feed hat keine XML-Deklaration und liefert
  * keine {@code description}, der Fed-Feed beginnt mit einem UTF-8-BOM. Einträge ohne Link oder ohne
- * parsbares Datum werden verworfen (beides ist Pflicht am {@link PrimaryEvent}) und am Ende
+ * parsbares Datum werden verworfen (beides ist Pflicht am {@link FeedItem}) und am Ende
  * gezählt gemeldet — bewusst KEIN Notbehelf „Abrufzeit als Veröffentlichungszeit", der stillschweigend
  * falsche Zeitachsen erzeugen würde.
  */
@@ -54,7 +54,7 @@ public final class GenericRssAdapter implements SourceAdapter {
     }
 
     @Override
-    public List<PrimaryEvent> fetch(IngestSource source) {
+    public List<FeedItem> fetch(IngestSource source) {
         URI url = URI.create(source.access().url());
         Instant fetchedAt = clock.instant();
 
@@ -68,7 +68,7 @@ public final class GenericRssAdapter implements SourceAdapter {
         return parse(response.get().body(), source, fetchedAt);
     }
 
-    private List<PrimaryEvent> parse(byte[] body, IngestSource source, Instant fetchedAt) {
+    private List<FeedItem> parse(byte[] body, IngestSource source, Instant fetchedAt) {
         SyndFeed feed;
         List<String> rawDates;
         String language;
@@ -94,7 +94,7 @@ public final class GenericRssAdapter implements SourceAdapter {
                     source.id(), rawDates.size(), entries.size());
         }
 
-        List<PrimaryEvent> events = new ArrayList<>(entries.size());
+        List<FeedItem> items = new ArrayList<>(entries.size());
         int ohneLink = 0;
         int ohneDatum = 0;
 
@@ -113,11 +113,12 @@ public final class GenericRssAdapter implements SourceAdapter {
                 continue;
             }
 
-            events.add(new PrimaryEvent(
+            items.add(new FeedItem(
                     source.id(),
                     source.institution(),
                     trimToNull(entry.getTitle()),
                     url,
+                    trimToNull(entry.getUri()),
                     publishedAt.get(),
                     summary(entry),
                     language,
@@ -131,8 +132,8 @@ public final class GenericRssAdapter implements SourceAdapter {
             log.warn("Quelle {}: {} von {} Einträgen verworfen ({} ohne Link, {} ohne parsbares Datum)",
                     source.id(), ohneLink + ohneDatum, entries.size(), ohneLink, ohneDatum);
         }
-        log.info("Quelle {}: {} Ereignisse gelesen", source.id(), events.size());
-        return List.copyOf(events);
+        log.info("Quelle {}: {} Meldungen gelesen", source.id(), items.size());
+        return List.copyOf(items);
     }
 
     /**

@@ -1,6 +1,6 @@
 {
   "version": "2026-07-13c",
-  "purpose": "Routing-Manifest fuer den Lucoris-Pulse-Primaerquellen-Ingest. KEIN Parser-Input: der Importer liest dieses Manifest einheitlich und routet jede Quelle ueber 'handler' an die konkrete Adapter-Klasse. Unten emittieren alle Adapter dasselbe PrimaryEvent.",
+  "purpose": "Routing-Manifest fuer den Lucoris-Pulse-Primaerquellen-Ingest. KEIN Parser-Input: der Importer liest dieses Manifest einheitlich und routet jede Quelle ueber 'handler' an die konkrete Adapter-Klasse. Unten emittieren alle Adapter dasselbe FeedItem.",
   "schema": {
     "access.type": "Dispatch-KATEGORIE: rss | api | landing.",
     "handler": "Konkrete Adapter-KLASSE. Bei rss immer 'generic_rss'. Bei api/landing je eigener Handler.",
@@ -12,7 +12,7 @@
     "originates": "Ereignistypen, fuer die diese Quelle die ORIGINAERE Ausgabestelle ist (LLM-Routing-Landkarte).",
     "legal_class": "A = amtlich/gemeinfrei/offene Lizenz (Ausdrucksform uebernehmbar, ggf. mit Attribution). B = zur Verbreitung bestimmt, Text formal geschuetzt (nur Fakten extrahieren, eigene Formulierung, Link).",
     "attribution": "required: Quellenangabe ist Lizenz-/Nutzungsbedingung. formula: vorgegebene/uebliche Formel. modified_note: true = bei Bearbeitung Veraenderungshinweis noetig (z.B. dl-de/by-2.0). Fehlt das Feld: keine Pflicht, Anzeige-Regel unten gilt trotzdem.",
-    "display_rule": "Rendering zeigt IMMER Institution + Datum + Deep-Link aus dem PrimaryEvent (url-Feld) — unabhaengig von der Pflichtlage. Bei attribution.modified_note zusaetzlich 'eigene Darstellung auf Basis von ...'.",
+    "display_rule": "Rendering zeigt IMMER Institution + Datum + Deep-Link aus dem FeedItem (url-Feld) — unabhaengig von der Pflichtlage. Bei attribution.modified_note zusaetzlich 'eigene Darstellung auf Basis von ...'.",
     "lane": "ingest_sources = gepollt; verification_lookup = nur anlassbezogen; blocked = maschineller Zugriff untersagt; planned = vorgemerkt, noch nicht verfuegbar."
   },
   "relevance_gate": {

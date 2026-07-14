@@ -24,7 +24,7 @@ public final class AdapterDispatcher implements SourceAdapter {
     }
 
     @Override
-    public List<PrimaryEvent> fetch(IngestSource source) {
+    public List<FeedItem> fetch(IngestSource source) {
         String handler = source.handler();
         SourceAdapter adapter = adapterByHandler.get(handler);
         if (adapter == null) {
