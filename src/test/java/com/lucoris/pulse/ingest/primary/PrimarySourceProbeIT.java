@@ -34,7 +34,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Fehlt eines von beiden, deaktiviert JUnit den Test, BEVOR ein Socket aufgeht — {@code mvn verify}
  * bleibt offline.
  *
- * <pre>PRIMARY_LIVE_IT=true mvn -Dit.test=PrimarySourceProbeIT -Dprimary.source=bmf-presse verify</pre>
+ * <pre>PRIMARY_LIVE_IT=true mvn -Dit.test=PrimarySourceProbeIT -Dprimary.source=bmf-aktuelles verify</pre>
  *
  * <p>Braucht weder Spring noch Datenbank — der Ingest-Pfad wird von Hand zusammengesteckt. Erbt
  * deshalb bewusst NICHT von {@code AbstractPostgresIT}.
@@ -48,7 +48,7 @@ import tools.jackson.databind.json.JsonMapper;
 @EnabledIfSystemProperty(named = PrimarySourceProbeIT.SOURCE_PROPERTY, matches = ".+")
 class PrimarySourceProbeIT {
 
-    /** Quell-ID aus dem Manifest, z.B. {@code -Dprimary.source=bmf-presse}. */
+    /** Quell-ID aus dem Manifest, z.B. {@code -Dprimary.source=bmf-aktuelles}. */
     static final String SOURCE_PROPERTY = "primary.source";
 
     private static final Logger log = LoggerFactory.getLogger(PrimarySourceProbeIT.class);

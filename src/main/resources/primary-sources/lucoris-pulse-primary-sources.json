@@ -116,6 +116,20 @@
       }
     },
     {
+      "id": "bmf-aktuelles", "institution": "Bundesministerium der Finanzen", "category": "government_executive", "region": "DE", "tier": 2,
+      "originates": ["fiscal_policy","tax_policy","press_release"],
+      "access": { "type": "rss", "url": "https://www.bundesfinanzministerium.de/SiteGlobals/Functions/RSSFeed/DE/Aktuelles/RSSAktuelles.xml", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
+      "enabled": false, "confidence": "verified", "legal_class": "B",
+      "notes": "ABRUF UEBER express_invitation (ADR 24). Die '*'-Gruppe der robots.txt fuehrt 'Disallow: */SiteGlobals' — ein generisches CMS-Zweig-Muster, unter dem der Feed nur zufaellig liegt (Destatis hat im selben CMS 'Allow: /SiteGlobals/Functions/RSSFeed/DE/' ergaenzt, BMF hat die Zeile vergessen). Kein KI-Crawler namentlich gesperrt, kein TDM-Vorbehalt, Feed-Antwort ohne TDM-Reservation-Header. Das BMF laedt auf der unten genannten Seite ausdruecklich zum Abonnieren ein. Feed liefert 20 Eintraege, pubDate RFC-822, kein guid (Deep-Link aus <link>). Channel fuehrt 'Copyright by BMF' -> Klasse B: nur Fakten extrahieren, eigene Formulierung, Link. Die Einladung erlaubt den ABRUF, sie ist KEINE Lizenz. WICHTIG: robots.txt setzt Crawl-delay 180 — poll.seconds (900) haelt das ein. Die Einladungsseite ist fuer Bots durch einen Radware-Bot-Manager gesperrt (302 auf validate.perfdrive.com), die Re-Validierung meldet daher dauerhaft INVITATION_UNVERIFIABLE: die Evidenz ruht auf der Handaufzeichnung vom 2026-07-13. enabled bleibt false — Scharfschalten ist eine eigene Entscheidung.",
+      "express_invitation": {
+        "page_url": "https://www.bundesfinanzministerium.de/Web/DE/Service/Abonnements/Rss/rss.html",
+        "wording": "Kopieren Sie den Link der RSS-Datei, diese kopierte Adresse können Sie dann in Ihren RSS-Reader einfügen.",
+        "retrieved": "2026-07-13",
+        "scope": "Gilt für die auf der Einladungsseite konkret verlinkten Feed-XMLs, nicht pauschal für den Pfad."
+      }
+    },
+    {
       "id": "bundestag-dip", "institution": "Deutscher Bundestag (DIP)", "category": "parliament", "region": "DE", "tier": 2,
       "originates": ["drucksache","plenarprotokoll","gesetzgebungsvorgang"],
       "access": { "type": "api", "url": "https://search.dip.bundestag.de/api/v1/", "format": "json" },
