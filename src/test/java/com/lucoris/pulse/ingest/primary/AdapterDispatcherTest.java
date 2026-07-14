@@ -51,7 +51,7 @@ class AdapterDispatcherTest {
                 id, "Institution", "central_bank", "EA", 1, List.of(),
                 new Access("rss", "https://example.org/f.xml", "rss2.0"),
                 handler, new Poll("interval", 300, null),
-                true, "verified", "A", null, null);
+                true, "verified", "A", null, null, null);
     }
 
     /** Fake-Adapter: merkt sich, womit er aufgerufen wurde, und liefert genau ein Ereignis. */

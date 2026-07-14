@@ -3,6 +3,8 @@ package com.lucoris.pulse.ingest.primary;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
+import com.lucoris.pulse.ingest.primary.robots.ExpressInvitation;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -132,6 +134,38 @@ class PrimarySourceManifestLoaderTest {
                     assertThat(s.legalClass()).isEqualTo("A");
                     assertThat(s.attribution()).isNull();
                 });
+    }
+
+    @Test
+    void bmfCarriesTheExpressInvitationVerbatim() {
+        // Die Einladung ist die einzige Evidenz, die ein generisches robots-Disallow aufwiegen kann
+        // (ADR 24). Sie muss WÖRTLICH ankommen — das wording ist das Match-Ziel der Re-Validierung.
+        ExpressInvitation einladung = source("bmf-presse").expressInvitation();
+
+        assertThat(einladung).isNotNull();
+        assertThat(einladung.pageUrl())
+                .isEqualTo("https://www.bundesfinanzministerium.de/Web/DE/Service/Abonnements/Rss/rss.html");
+        assertThat(einladung.wording()).isEqualTo(
+                "Kopieren Sie den Link der RSS-Datei, diese kopierte Adresse können Sie dann in "
+                        + "Ihren RSS-Reader einfügen.");
+        assertThat(einladung.retrieved()).isEqualTo("2026-07-13");
+        assertThat(einladung.scope()).contains("nicht pauschal für den Pfad");
+
+        assertThat(einladung.complete()).isTrue();
+        assertThat(einladung.retrievedDate()).contains(LocalDate.of(2026, 7, 13));
+
+        // access.type MUSS rss sein, sonst greift die Einladung nicht (Bedingung a).
+        assertThat(source("bmf-presse").access().type()).isEqualTo("rss");
+        // Und sie schaltet die Quelle NICHT scharf.
+        assertThat(source("bmf-presse").enabled()).isFalse();
+    }
+
+    @Test
+    void sourcesWithoutAnInvitationDeserialiseToNull() {
+        // Der Normalfall — und die Regressionsfalle: ein Pflicht-Check auf das Feld hätte 26 von 27
+        // Quellen beim Deserialisieren gesprengt.
+        assertThat(source("ecb-press").expressInvitation()).isNull();
+        assertThat(source("destatis-press").expressInvitation()).isNull();
     }
 
     @Test

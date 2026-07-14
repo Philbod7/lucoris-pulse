@@ -58,11 +58,11 @@
     {
       "id": "destatis-press", "institution": "Statistisches Bundesamt (Destatis)", "category": "statistics_office", "region": "DE", "tier": 1,
       "originates": ["german_inflation","gdp","unemployment","trade","producer_prices"],
-      "access": { "type": "rss", "url": "https://www.destatis.de/DE/Service/RSS/_inhalt.html", "format": "rss2.0" },
+      "access": { "type": "rss", "url": "https://www.destatis.de/SiteGlobals/Functions/RSSFeed/DE/RSSNewsfeed/Aktuell.xml?nn=241288", "format": "rss2.0" },
       "handler": "generic_rss", "poll": { "mode": "calendar", "ref": "https://www.destatis.de/DE/Presse/Termine/Veroeffentlichungstabelle/_inhalt.html" },
-      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "enabled": false, "confidence": "verified", "legal_class": "A",
       "attribution": { "required": true, "formula": "Quelle: Statistisches Bundesamt (Destatis), [Jahr]", "modified_note": true },
-      "notes": "dl-de/by-2.0: Namensnennung PFLICHT, bei Bearbeitung Veraenderungshinweis ('eigene Darstellung auf Basis von...'). Exakte Feed-URL vom RSS-Hub abgreifen."
+      "notes": "dl-de/by-2.0: Namensnennung PFLICHT, bei Bearbeitung Veraenderungshinweis ('eigene Darstellung auf Basis von...'). Feed-URL am 2026-07-14 vom RSS-Hub (/DE/Service/RSS/_inhalt.html) abgegriffen und angetippt: RSS 2.0, 10 Eintraege. ROBOTS: ausdruecklich erlaubt — die '*'-Gruppe sperrt zwar /SiteGlobals/, setzt aber 'Allow: /SiteGlobals/Functions/RSSFeed/DE/' (genau die Zeile, die BMF fehlt); Crawl-delay 30. Kein KI-/TDM-Vorbehalt. Vom RobotsGate freigegeben. Kein Bot-Manager, HTML lesbar. Aktivierung ist eine eigene Entscheidung (poll ist 'calendar' — der Scheduler dafuer fehlt noch)."
     },
     {
       "id": "us-bls", "institution": "US Bureau of Labor Statistics", "category": "statistics_office", "region": "US", "tier": 1,
@@ -96,17 +96,24 @@
     {
       "id": "bundesregierung-presse", "institution": "Bundesregierung", "category": "government_executive", "region": "DE", "tier": 2,
       "originates": ["government_statement","policy_announcement","press_release"],
-      "access": { "type": "rss", "url": "https://www.bundesregierung.de/breg-de/service/rss", "format": "rss2.0" },
+      "access": { "type": "rss", "url": "https://www.bundesregierung.de/service/rss/breg-de/1151244/feed.xml", "format": "rss2.0" },
       "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
-      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B",
-      "notes": "Pressemitteilungen sind NICHT pauschal § 5 UrhG — Klasse B (Fakten extrahieren). RSS-Hub-URL beim Einbau fixieren."
+      "enabled": false, "confidence": "verified", "legal_class": "B",
+      "notes": "Pressemitteilungen sind NICHT pauschal § 5 UrhG — Klasse B (Fakten extrahieren, eigene Formulierung, Link). Alte URL (/breg-de/service/rss) war 404. Feed-URL am 2026-07-14 vom Hub (/rss -> .../newsletter-und-abos/rss-newsfeed) abgegriffen: RSS 2.0, 20 Eintraege. Die Domain fuehrt vier Feeds — 1151244 = 'Pressemitteilungen' (die anderen: 1151242 'Bundesregierung kompakt', 1151246 'Artikel', 2318648 'Bulletin'). ROBOTS: 44 Gruppen, ALLE namentlich gesperrte SEO-/Scraper-Bots mit 'Disallow: /'; es gibt KEINE '*'-Gruppe und kein KI-Crawler ist genannt -> nach RFC 9309 gilt fuer uns keine Regel = erlaubt. Vom RobotsGate freigegeben. Aktivierung ist eine eigene Entscheidung."
     },
     {
       "id": "bmf-presse", "institution": "Bundesministerium der Finanzen", "category": "government_executive", "region": "DE", "tier": 2,
       "originates": ["fiscal_policy","tax_policy","press_release"],
-      "access": { "type": "rss", "url": "https://www.bundesfinanzministerium.de/rss", "format": "rss2.0" },
+      "access": { "type": "rss", "url": "https://www.bundesfinanzministerium.de/SiteGlobals/Functions/RSSFeed/DE/Pressemitteilungen/RSSPressemitteilungen.xml", "format": "rss2.0" },
       "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 900 },
-      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+      "enabled": false, "confidence": "verified", "legal_class": "B",
+      "notes": "ABRUF UEBER express_invitation (ADR 24). Die '*'-Gruppe der robots.txt fuehrt 'Disallow: */SiteGlobals' — ein generisches CMS-Zweig-Muster, unter dem der Feed nur zufaellig liegt (Destatis hat im selben CMS 'Allow: /SiteGlobals/Functions/RSSFeed/DE/' ergaenzt, BMF hat die Zeile vergessen). Kein KI-Crawler namentlich gesperrt, kein TDM-Vorbehalt, Feed-Antwort ohne TDM-Reservation-Header. Das BMF laedt auf der unten genannten Seite ausdruecklich zum Abonnieren ein. Feed liefert 20 Eintraege, pubDate RFC-822, kein guid (Deep-Link aus <link>). Channel fuehrt 'Copyright by BMF' -> Klasse B: nur Fakten extrahieren, eigene Formulierung, Link. Die Einladung erlaubt den ABRUF, sie ist KEINE Lizenz. WICHTIG: robots.txt setzt Crawl-delay 180 — poll.seconds (900) haelt das ein. Die Einladungsseite ist fuer Bots durch einen Radware-Bot-Manager gesperrt (302 auf validate.perfdrive.com), die Re-Validierung meldet daher dauerhaft INVITATION_UNVERIFIABLE: die Evidenz ruht auf der Handaufzeichnung vom 2026-07-13. enabled bleibt false — Scharfschalten ist eine eigene Entscheidung.",
+      "express_invitation": {
+        "page_url": "https://www.bundesfinanzministerium.de/Web/DE/Service/Abonnements/Rss/rss.html",
+        "wording": "Kopieren Sie den Link der RSS-Datei, diese kopierte Adresse können Sie dann in Ihren RSS-Reader einfügen.",
+        "retrieved": "2026-07-13",
+        "scope": "Gilt für die auf der Einladungsseite konkret verlinkten Feed-XMLs, nicht pauschal für den Pfad."
+      }
     },
     {
       "id": "bundestag-dip", "institution": "Deutscher Bundestag (DIP)", "category": "parliament", "region": "DE", "tier": 2,

@@ -156,6 +156,21 @@ Vom `mvn verify` per Default ausgeschlossen (wie die GDELT-Live-ITs, per Env-Var
 PRIMARY_LIVE_IT=true mvn -Dit.test=PrimaryRssLiveIT verify
 ```
 
+### Kandidaten-Probe: eine benannte Quelle antippen
+`SourceLoadValidator` und `PrimaryRssLiveIT` sehen nur `enabled: true`-Quellen. Ein Kandidat mit
+`confidence: verify_endpoint` muss aber abgerufen werden, BEVOR er aktiviert wird — sonst wäre das
+Aktivieren selbst der Test. Dafür `PrimarySourceProbeIT`: zieht eine Quelle per ID aus dem
+Manifest (auch `enabled: false`) und ruft sie über den echten Dispatcher-Pfad ab.
+
+```
+PRIMARY_LIVE_IT=true mvn -Dit.test=PrimarySourceProbeIT -Dprimary.source=bmf-presse verify
+```
+
+Doppelt gegatet (Env-Variable UND Quell-ID), ohne Spring und ohne Datenbank; läuft NIE im
+Standard-Build. Liefert die Quelle nichts, ist der Test rot — das ist die Aussage. Reihenfolge beim
+Einbau: robots/TDM prüfen → URL antippen → Probe grün → `confidence: verified` → erst danach
+`enabled: true`.
+
 ## Quellen-Erlaubnis (rechtlich) — VOR jedem Abruf prüfen
 - GDELT-Lizenz: freie kommerzielle Weiterverbreitung, ABER Attributionspflicht (Verweis +
   Link auf gdeltproject.org) muss propagieren (API-Response/Terms).
@@ -171,13 +186,72 @@ PRIMARY_LIVE_IT=true mvn -Dit.test=PrimaryRssLiveIT verify
 - Output: nur eigene Zusammenfassung, keine Passagen reproduzieren, keinen Volltext archivieren
   (Löschpflicht nach TDM). Höflich crawlen (ehrlicher UA, Rate-Limit, Caching).
 
-### Stand im Primärquellen-Pfad (OFFEN)
-Der `GenericRssAdapter` protokolliert VOR jedem Abruf die Allowlist-Entscheidung mit Zeitstempel
-(`id`, `legal_class`, `confidence`, `url`) — das deckt die Beweislast-Zeile ab, solange die
-kuratierte Allowlist die Entscheidung trägt. **Ein maschineller robots.txt-/TDM-Check zur Laufzeit
-fehlt noch** und ist ein eigener Increment (Port `RobotsGate`, Cache je Domain, konservative Regel
-oben). Bis dahin gilt: Quellen NUR nach manueller Prüfung auf `enabled: true` setzen. Die derzeit
-aktiven Quellen (EZB, Fed) sind `legal_class: A` — amtlich bzw. US-Bundeswerk (17 U.S.C. § 105).
+### Prüfprotokoll (manuell, bis der `RobotsGate` steht)
+Jede Domain wird VOR dem ersten Abruf geprüft; Befund mit Datum hier festhalten (Beweislast).
+
+| Domain | geprüft am | robots.txt | TDM-Vorbehalt | Ergebnis |
+|---|---|---|---|---|
+| `bundesfinanzministerium.de` | 2026-07-14 | `User-agent: *` erlaubt, `Crawl-delay: 180`; ~40 namentlich gesperrte SEO-/Scraper-Bots; keine KI-Crawler (GPTBot/CCBot/ClaudeBot) gesperrt; Feed-Pfade nicht disallowed | keiner gefunden | Abruf zulässig. Feed führt „Copyright by BMF. Alle Rechte vorbehalten" → `legal_class: B`. Vorgelagerter Radware-Bot-Manager (HTML → 302 auf `validate.perfdrive.com`), den Feed hat er `LucorisNewsBot/1.0` ausgeliefert (Probe: 20 Einträge). |
+
+### Der RobotsGate (maschinell, fail-closed)
+Die Allowlist ist eine Handprüfung — und Handprüfungen irren. Deshalb prüft der `RobotsGate` VOR
+jedem Abruf maschinell und verweigert im Zweifel. Details: `docs/decisions.md` Nr. 23.
+
+Verboten wird, wenn **einer** dieser drei Gründe greift:
+1. robots.txt verbietet `LucorisNewsBot` den Pfad;
+2. robots.txt sperrt einen gängigen KI-Crawler (GPTBot, ClaudeBot, CCBot, Google-Extended, ...) für
+   **denselben Pfad** — die konservative Regel oben; die Namenslücke wird nicht ausgenutzt;
+3. `/.well-known/tdmrep.json` erklärt für den Pfad einen TDM-Vorbehalt.
+
+**Fail-closed**: robots.txt mit 5xx/401/403 oder gar nicht erreichbar => kein Abruf. Nur ein
+sauberes HTTP 404/410 heißt „keine robots.txt, also keine Einschränkung" (RFC 9309). Jede
+Entscheidung wird mit Zeitstempel geloggt (Beweislast). Es gibt **keinen Ausschalter**.
+
+Das Gate sitzt als Dekorator VOR dem Dispatcher — jeder Handler (auch der künftige `sec_edgar`) ist
+damit zwangsläufig abgedeckt, und auch `PrimarySourceProbeIT` läuft hindurch: gerade dort wird eine
+noch ungeprüfte Quelle zum ersten Mal angefasst.
+
+Ein Verbot wirft `SourceNotPermittedException` (keine stille leere Liste). Der Ingest fängt es pro
+Quelle ab, der Validator meldet es als `VERBOTEN`.
+
+**Beleg, dass es trägt:** `bmf-presse` war von Hand als unbedenklich freigegeben. Der Gate hat den
+Abruf verweigert — die BMF-robots.txt sperrt mit `Disallow: */SiteGlobals` genau den Zweig, in dem
+der Feed liegt. Die Quelle bleibt `enabled: false`.
+
+**Der dritte Kanal (seit ADR 24 geschlossen):** Der `TDM-Reservation`-HTTP-Header auf der Feed-Antwort
+wird vom `TdmAwareFeedFetcher` geprüft — einem Dekorator um den Fetcher. Ist er gesetzt, wird das
+Dokument verworfen, BEVOR ein Parser es sieht (`SourceNotPermittedException`). Das kostet keinen
+zusätzlichen Request und schützt alle Quellen.
+
+### ALLOW_BY_INVITATION (ADR 24)
+Ein **generisches** robots-Disallow, das einen Feed nur als Nebenwirkung erfasst, kann von einer
+**ausdrücklichen Abo-Einladung des Herausgebers** aufgewogen werden. Belegfall: BMF sperrt pauschal
+den CMS-Zweig `*/SiteGlobals` (dort liegen Formulare, Skripte, CSS) und hat — anders als Destatis im
+selben CMS — vergessen, den RSS-Zweig per `Allow` wieder freizugeben; zugleich lädt es auf einer
+eigenen Seite ausdrücklich zum Abonnieren ein.
+
+Die Evidenz steht als optionales Feld `express_invitation` in der Registry und wird **von Hand**
+eingetragen (`page_url`, `wording`, `retrieved`, `scope`). **Es gibt kein Override-Flag und keine
+Sonderbehandlung einzelner Quellen im Code.** Alle fünf Bedingungen müssen gelten — Details und
+Begründung in `docs/decisions.md` Nr. 24:
+
+| | |
+|---|---|
+| **a** | `access.type == rss` |
+| **b** | Evidenz vollständig **und** nicht veraltet (`invitation-max-age`, Default 180 Tage) |
+| **c** | das treffende Muster erfasst den Feed nur beiläufig — nennt es `rss`/`feed`/`atom`, zielt es auf eine Datei, oder ist es ein Total-Bann (`Disallow: /`), bleibt es gesperrt |
+| **d** | das Disallow steht in der `*`-Gruppe; jede benannte UA-Gruppe (auch KI-Crawler), die sperrt, gewinnt |
+| **e** | TDM-Kanäle sind clean — sie gewinnen immer |
+
+Jede solche Entscheidung schreibt eine Beweislast-Zeile auf WARN (Muster, UA-Gruppe, Fundstelle,
+wörtlicher Satz, Zeitstempel).
+
+**Grenze, die sichtbar bleiben muss:** Die BMF-Einladungsseite ist für Bots gesperrt (Bot-Manager,
+302). Die Re-Validierung im Profil `validate-sources` meldet daher dauerhaft
+`INVITATION_UNVERIFIABLE` — nicht `BLOCKED_STALE_INVITATION`, denn „nicht gesehen" ist kein Beweis
+für „geändert". Die Erlaubnis ruht damit allein auf der Handaufzeichnung in der Registry.
+
+Und: die Einladung erlaubt den **Abruf**. Sie ist **keine Lizenz** — `legal_class: B` bleibt B.
 
 ## Quellenstrategie (DACH)
 - Kommerzielle Premium-Qualitätspresse (Spiegel, SZ, Zeit, FAZ, Welt, Handelsblatt ...) sperrt

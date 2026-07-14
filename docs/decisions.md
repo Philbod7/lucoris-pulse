@@ -213,3 +213,135 @@ Primärquellen-Pfads stehen unter `@Profile({"ingest","validate-sources"})` (ODE
 Der Validator ist der einzige `ApplicationRunner` — deshalb erreicht kein Standard-Test das Netz.
 Die `Clock` wird hier direkt gesetzt statt als Bean injiziert: `IngestConfig` definiert `ingestClock`
 nur unter Profil `ingest`, ein zweites Clock-Bean würde bei beiden aktiven Profilen kollidieren.
+
+## 23. Kandidatenquellen werden angetippt, nicht aktiviert
+`SourceLoadValidator` und `PrimaryRssLiveIT` iterieren `enabledSources()`. Eine Quelle mit
+`confidence: verify_endpoint` ließe sich damit nur prüfen, indem man sie aktiviert — dann wäre das
+Aktivieren selbst der Test, und eine unerreichbare oder umgezogene URL landete im Ingest, bevor sie
+je jemand abgerufen hat (bei `bmf-presse` war die hinterlegte URL ein 404). -> `PrimarySourceProbeIT`
+zieht eine Quelle per ID aus `load().ingestSources()` (also auch `enabled: false`) und ruft sie über
+denselben `AdapterDispatcher` ab, den der Ingest benutzt — nicht über einen zweiten Parser-Pfad.
+- **Doppelt gegatet**: `PRIMARY_LIVE_IT=true` UND `-Dprimary.source=<id>`. Ohne beides deaktiviert
+  JUnit die Klasse, bevor ein Socket aufgeht; der Standard-Build bleibt offline.
+- **Ohne Spring und ohne DB** (wie `PrimaryRssLiveIT`): ein RSS-Abruf braucht kein Postgres.
+- **Zusicherungen quellunabhängig**: `legal_class` wird gegen das Manifest geprüft, nicht gegen ein
+  hartes `"A"` — die Klasse muss auch für Klasse-B-Kandidaten taugen.
+- Reihenfolge beim Einbau einer Quelle: robots/TDM prüfen -> URL antippen -> Probe grün ->
+  `confidence: verified` -> erst danach `enabled: true`. `enabled` bleibt das Tor zum Ingest.
+
+## 23. RobotsGate: robots.txt + TDM-Vorbehalt als Sicherheitsnetz, fail-closed
+Die kuratierte Allowlist ist eine Handprüfung — und Handprüfungen irren. Beim Bauen genau
+nachgewiesen: `bmf-presse` war von Hand als „Feed-Pfade nicht disallowed" freigegeben worden,
+tatsächlich sperrt die `*`-Gruppe der BMF-robots.txt mit `Disallow: */SiteGlobals` genau den Zweig,
+in dem der Feed liegt. -> Ein maschinelles Gate prüft VOR jedem Abruf und verweigert ihn im Zweifel.
+- **Drei Verbotsgründe**: (1) robots.txt verbietet unserem Token den Pfad; (2) robots.txt sperrt
+  einen gängigen KI-Crawler (GPTBot, ClaudeBot, CCBot, Google-Extended, ...) für **denselben Pfad**
+  — KONSERVATIVE REGEL aus CLAUDE.md, die Namenslücke wird nicht ausgenutzt; (3) TDM-Vorbehalt in
+  `/.well-known/tdmrep.json` für den Pfad. Bewusst pfadgenau statt domainweit: ein GPTBot-Disallow
+  auf `/shop/` darf den Abruf von `/rss/` nicht blockieren (kein Fehlalarm).
+- **Fail-closed**: robots.txt mit 5xx/401/403 oder gar nicht erreichbar => VERBOTEN. Kein Nachweis
+  der Erlaubnis = kein Abruf; die Beweislast liegt beim Data Miner. Nur ein sauberes 404/410 heißt
+  „keine robots.txt, also keine Einschränkung" (RFC 9309).
+  Ausnahme mit Grund: eine nicht erreichbare `tdmrep.json` hebt eine GÜLTIGE robots-Auskunft nicht
+  auf. Ihr Fehlen ist der Normalfall; würde ein 5xx dort sperren, wäre praktisch jede Domain gesperrt.
+- **Sitz des Gates**: Dekorator (`RobotsGatedAdapter`) VOR dem `AdapterDispatcher`, nicht im
+  RSS-Adapter. Damit ist jeder künftige Handler (`sec_edgar`, ...) zwangsläufig abgedeckt und
+  niemand umgeht das Gate versehentlich, indem er einen neuen Adapter schreibt. Auch die Live- und
+  Probe-ITs laufen durch dasselbe Gate — gerade die Probe, denn dort wird eine noch UNGEPRÜFTE
+  Quelle zum ersten Mal angefasst.
+- **Verbot wirft** (`SourceNotPermittedException`) statt eine leere Liste zu liefern: eine verbotene
+  Quelle sähe sonst aus wie ein leerer Feed. Der Ingest fängt pro Quelle ab, der Validator meldet
+  sie gesondert.
+- **Kein Kill-Switch.** Ein Ausschalter würde genau das Netz entwerten, für das er da ist.
+- **Cache je Host** (Caffeine, `maximumSize` gesetzt): bei 300 s Poll würde robots.txt sonst 288-mal
+  am Tag je Quelle geholt. Erfolge 24 h, Fehlschläge nur 5 min — fail-closed sperrt die Quelle,
+  solange die Auskunft fehlt, und ein kurzer 503 darf sie nicht einen ganzen Tag aussperren.
+  Der Cache steckt direkt in Caffeine, NICHT hinter Springs `@Cacheable`: das Gate ist ein POJO und
+  muss ohne Spring-Kontext testbar bleiben (die JCache/`@Cacheable`-Schicht aus CLAUDE.md bleibt für
+  die Spring-verwalteten Caches des REST-Read-Models).
+- **Bot-Manager-Fallstrick** (beim Bauen gefunden): Radware vor `bundesfinanzministerium.de`
+  antwortet mit einem 302, dessen Location-URL den User-Agent UNKODIERT enthält (Leerzeichen,
+  Klammern). Der JDK-`HttpClient` wirft dann beim Folgen des Redirects `IllegalArgumentException` —
+  **unchecked**, also nicht vom `catch (IOException)` erfasst. Beide HTTP-Adapter fangen das jetzt
+  ab; im Gate führt es (richtigerweise) zu fail-closed statt zum Absturz.
+- **Grenze**: der `TDM-Reservation`-HTTP-Header auf der Feed-Antwort selbst wird noch nicht geprüft
+  (dafür müsste der Feed-Port seine Header durchreichen). robots.txt und `tdmrep.json` sind
+  abgedeckt.
+
+## 24. express_invitation: ausdrückliche Abo-Einladung schlägt ein GENERISCHES robots-Disallow
+Der RobotsGate (ADR 23) sperrte `bmf-presse`, weil die BMF-robots.txt in der `*`-Gruppe
+`Disallow: */SiteGlobals` führt — den CMS-Zweig, in dem Formulare, Skripte und Stylesheets liegen und
+in dem der RSS-Feed zufällig auch liegt. Dass das Kollateralschaden ist und keine Absage, ist
+BELEGT: Destatis nutzt dasselbe CMS mit derselben Pauschalsperre, hat aber
+`Allow: /SiteGlobals/Functions/RSSFeed/DE/` ergänzt. BMF hat JavaScript, CSS, Buttons und
+SocialBookmarks freigeschaltet — und RSSFeed vergessen. Gleichzeitig lädt das BMF auf einer eigenen
+Seite ausdrücklich zum Abonnieren ein. Ein Feed ist zum Abonnieren gemacht; eine Zweig-Regel, die
+ihn nur nebenbei erfasst, ist keine Absage an genau diese Nutzung.
+-> Optionales Registry-Feld `express_invitation` (page_url, wording, retrieved, scope) und ein
+neuer Gate-Zustand `ALLOW_BY_INVITATION`. **Kein Override-/Force-Flag, keine Sonderbehandlung
+einzelner Quellen im Code.** Die Evidenz kommt ausschließlich von Hand aus der Registry — der Code
+erfindet sie nie.
+
+Ein Disallow wird NUR dann zur Einladung, wenn ALLE gelten:
+- **(a)** `access.type == rss` — nur ein Feed kann „zum Abonnieren angeboten" sein.
+- **(b)** Evidenz vollständig (page_url, wording, retrieved) UND nicht veraltet
+  (`lucoris.ingest.primary.invitation-max-age`, Default 180 Tage). Evidenz altert: eine Feststellung
+  von 2026 trägt einen Abruf 2031 nicht. Sonst `BLOCKED_STALE_INVITATION`.
+- **(c)** Das TREFFENDE Muster erfasst den Feed nur beiläufig (`PatternScope`). Nennt es
+  `rss`/`feed`/`atom`/`xml`, endet es auf `$`, zielt es auf eine Datei — oder ist es ein Total-Bann
+  (`/`, `*`, `/*`) —, bleibt es BLOCKED. **Der Total-Bann ist bewusst ausgenommen**: ein pauschales
+  „keine Bots, nirgends" erfasst den Feed nicht nebenbei, sondern absichtlich; sonst hebelte eine
+  Einladung jede Komplettsperre aus. Die Klassifikation ist absichtlich ÜBERSTRENG — ein falsch als
+  „gezielt" eingestuftes Muster kostet einen Abruf (harmlos), ein falsch als „beiläufig" eingestuftes
+  bricht den erkennbaren Willen des Herausgebers (nicht harmlos).
+- **(d)** Das treffende Disallow steht in der `*`-Gruppe. Nennt uns die Seite BEIM NAMEN und sperrt
+  uns, ist das eine gezielte Absage, keine Namenslücke. Jede benannte KI-Crawler-Gruppe gewinnt ebenso.
+- **(e)** TDM-Kanäle sind clean — sie gewinnen IMMER.
+
+**(d) und (e) laufen STRUKTURELL vor der Einladungs-Leiter**, damit niemand sie später versehentlich
+dahinter schiebt und die konservative Regel still aushebelt. Dafür gibt es Reihenfolge-Tests.
+
+Jede `ALLOW_BY_INVITATION`-Entscheidung schreibt eine Beweislast-Zeile auf WARN (sourceId, Muster,
+UA-Gruppe, page_url, retrieved, scope, wording, Zeitstempel). Die Evidenz hängt als Record am
+`Decision` — die Tests prüfen den Record, nicht den Logger.
+
+### Der Nebenbefund, ohne den das Feature tot gewesen wäre
+`blockedAiCrawlers()` rief `allows()` auf, und das fällt bei fehlender KI-Gruppe auf `*` zurück. Bei
+BMF sperrt nur `*` -> es meldete **alle 20 KI-Crawler als gesperrt**, obwohl die Datei keinen einzigen
+nennt. Die konservative Regel hätte die Einladung immer vorher erschlagen — und die Liste war
+obendrein eine Falschaussage. -> Nur noch KI-Crawler zählen, die durch eine EIGENE, BENANNTE Gruppe
+gesperrt sind; implementiert über `match()` + `group().equals(crawler)`, NICHT über `allows()` (sonst
+kippt die Regel still, sobald jemand die Fallback-Logik anfasst). **Das schwächt nichts**: eine Site
+mit `User-agent: * / Disallow: /` bleibt über `allows()==false` gesperrt. Zwei Wächter-Tests halten
+das fest (`wildcardDisallowIsNotAnAiReservation`, `siteWideDisallowStillBlocksUs`).
+
+### TDM-Header: post-fetch statt Gate-Vorbedingung
+Der `TDM-Reservation`-Header ist eine Aussage über die AUSGELIEFERTE RESSOURCE und steht
+definitionsgemäß erst in der Antwort. Ein HEAD im Gate wäre genau dort blind, wo man ihn braucht
+(hinter einem Bot-Manager bekommt er 302) und wäre ein Extra-Request gegen eine Site mit
+`Crawl-delay: 180`. -> `TdmAwareFeedFetcher` als Dekorator um den Fetcher (wie der RobotsGatedAdapter
+um den Dispatcher): Header gesetzt => `SourceNotPermittedException`, BEVOR ein Handler die Bytes
+sieht. 0 Extra-Requests, schützt alle Quellen, schließt die in ADR 23 dokumentierte Lücke. Rechtlich
+sauber: § 44b UrhG verbietet das *Mining*, nicht den Abruf — der Abruf war durch robots.txt gedeckt.
+
+### Grenzen, die sichtbar bleiben müssen
+- **Der BMF-Fall ist maschinell NICHT verifizierbar.** Die Einladungsseite ist für Bots durch einen
+  Radware-Bot-Manager gesperrt (5/5 Abrufe -> HTTP 302 auf validate.perfdrive.com). Der
+  `InvitationVerifier` (nur Profil `validate-sources`) meldet daher dauerhaft
+  `INVITATION_UNVERIFIABLE` — bewusst NICHT `BLOCKED_STALE_INVITATION`: „nicht gesehen" ist kein
+  Beweis für „geändert", und eine unlesbare Seite als veraltet zu führen wäre eine Falschaussage im
+  Audit-Trail. Die Erlaubnis ruht damit allein auf der HANDAUFZEICHNUNG in der Registry. Wer daraus
+  stillschweigend „geprüft" macht, hat die Beweislast auf null gesetzt.
+- **`scope` ist Prosa, kein Pfad-Präfix** — kein String-Matcher. Seine Aussage („nur die konkret
+  verlinkten Feed-XMLs, nicht pauschal für den Pfad") wird STRUKTURELL eingehalten: die Evidenz hängt
+  an EINER Quelle, das Gate entscheidet über DEREN Feed-URL. Eine Einladung kann konstruktionsbedingt
+  nie einen ganzen Pfad freigeben. Dass die verlinkten XMLs nicht gegengeprüft werden können, ist die
+  Folge der Bot-Sperre oben.
+- **Die Einladung erlaubt den ABRUF, sie ist KEINE Lizenz.** `legal_class: B` bleibt B: nur Fakten
+  extrahieren, eigene Formulierung, Link. Nichts an dieser Entscheidung darf als Nutzungsrecht an der
+  Ausdrucksform gelesen werden.
+- **`enabled` bleibt das Tor.** `ALLOW_BY_INVITATION` schaltet `bmf-presse` NICHT scharf; das bleibt
+  eine getrennte menschliche Entscheidung.
+- **Crawl-delay:** BMF setzt 180 s. Sich auf das Wohlwollen eines Herausgebers zu berufen und
+  zugleich seine Abrufgrenze zu missachten, wäre der peinlichste denkbare Widerspruch. Der
+  `SourceLoadValidator` warnt jetzt, wenn `poll.seconds < Crawl-delay` (BMF: 900 > 180, hält).

@@ -2,6 +2,7 @@ package com.lucoris.pulse.ingest.primary;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.lucoris.pulse.ingest.primary.robots.ExpressInvitation;
 import java.util.List;
 
 /**
@@ -26,6 +27,9 @@ import java.util.List;
  *                    geschützt (nur Fakten extrahieren, eigene Formulierung, Link)
  * @param attribution Attributionspflicht; {@code null}, wenn keine besteht
  * @param notes       Freitext-Hinweise; {@code null} möglich
+ * @param expressInvitation ausdrückliche Abo-Einladung des Herausgebers; {@code null} = keine. Nur
+ *                    sie kann ein generisches robots-Disallow aufwiegen (ADR 24) — von Hand
+ *                    eingetragen, nie vom Code erfunden.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record IngestSource(
@@ -42,4 +46,5 @@ public record IngestSource(
         String confidence,
         @JsonProperty("legal_class") String legalClass,
         Attribution attribution,
-        String notes) {}
+        String notes,
+        @JsonProperty("express_invitation") ExpressInvitation expressInvitation) {}

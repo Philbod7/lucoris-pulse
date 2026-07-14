@@ -58,18 +58,14 @@ public final class GenericRssAdapter implements SourceAdapter {
         URI url = URI.create(source.access().url());
         Instant fetchedAt = clock.instant();
 
-        // Quellen-Erlaubnis: die kuratierte Allowlist-Entscheidung wird VOR dem Abruf mit Zeitstempel
-        // protokolliert (Rechtsregel aus docs/ingest-and-sources.md). Ein echter robots.txt-/TDM-Check
-        // steht noch aus — solange trägt die Allowlist die Entscheidung.
-        log.info("Quellen-Abruf freigegeben (Allowlist): id={} legal_class={} confidence={} url={} zeitpunkt={}",
-                source.id(), source.legalClass(), source.confidence(), url, fetchedAt);
-
-        Optional<byte[]> body = fetcher.fetch(url);
-        if (body.isEmpty()) {
+        // Die Erlaubnis (robots.txt/TDM) hat der RobotsGatedAdapter VOR diesem Aufruf geprüft, den
+        // TDM-Header der Antwort prüft der TdmAwareFeedFetcher — dieser Adapter parst nur noch.
+        Optional<FeedFetcher.FeedResponse> response = fetcher.fetch(url);
+        if (response.isEmpty()) {
             log.warn("Quelle {} nicht abrufbar ({}) — übersprungen", source.id(), url);
             return List.of();
         }
-        return parse(body.get(), source, fetchedAt);
+        return parse(response.get().body(), source, fetchedAt);
     }
 
     private List<PrimaryEvent> parse(byte[] body, IngestSource source, Instant fetchedAt) {

@@ -48,11 +48,25 @@ lucoris:
     # werden, steht NICHT hier, sondern im Routing-Manifest — hier nur das Wie des Abrufs.
     primary:
       # Ehrlicher Bot-User-Agent mit Kontaktseite. KEIN Spoofing (docs/ingest-and-sources.md).
-      user-agent: "LucorisBot/0.1 (+https://www.lucoris.com/bot)"
+      user-agent: "LucorisNewsBot/1.0 (+https://lucoris.com/bot)"
       connect-timeout: 10s
       request-timeout: 30s
       # Routing-Manifest: id, handler, access.url, enabled, legal_class, attribution je Quelle.
       manifest: "primary-sources/lucoris-pulse-primary-sources.json"
+
+      # Sicherheitsnetz unter der Allowlist: robots.txt + TDM-Vorbehalt werden VOR jedem Abruf
+      # geprüft (fail-closed — keine feststellbare Erlaubnis = kein Abruf). Kein Ausschalter:
+      # ein Kill-Switch würde genau das Netz entwerten, für das er da ist.
+      robots-success-ttl: 24h
+      # Bewusst kurz: solange die Auskunft fehlt, ist die Quelle gesperrt. Ein 503 darf sie nicht
+      # für einen ganzen Tag aussperren.
+      robots-failure-ttl: 5m
+      robots-cache-max-hosts: 500
+
+      # Eine `express_invitation` in der Registry kann ein GENERISCHES robots-Disallow aufwiegen
+      # (ADR 24) — aber Evidenz altert. Nach dieser Frist gilt eine Einladung als veraltet und die
+      # Quelle wird wieder gesperrt, bis jemand sie erneut feststellt. Kein Override-Flag.
+      invitation-max-age: 180d
 
     gdelt:
       # Diagnose: am Ende eines Tageslaufs ALLE vorgekommenen GKG-Themen-Codes mit Häufigkeit

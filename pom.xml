@@ -66,6 +66,14 @@
             <version>${rome.version}</version>
         </dependency>
 
+        <!-- Caffeine: Cache der robots.txt-/TDM-Auskunft je Host (sonst würde jeder Poll sie neu
+             holen). Version BOM-verwaltet. Der Cache steckt im POJO (RobotsGate), NICHT hinter
+             Springs @Cacheable — das Gate muss ohne Spring-Kontext unit-testbar bleiben. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- Tests: JUnit 5 + Testcontainers gegen echtes PostgreSQL. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

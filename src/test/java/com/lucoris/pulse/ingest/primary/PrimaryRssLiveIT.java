@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lucoris.pulse.ingest.config.PrimarySourceProperties;
 import com.lucoris.pulse.ingest.primary.adapter.HttpFeedFetcher;
+import com.lucoris.pulse.ingest.primary.adapter.HttpPolicyFetcher;
+import com.lucoris.pulse.ingest.primary.robots.CachingRobotsGate;
+import com.lucoris.pulse.ingest.primary.robots.FetchIntent;
+import com.lucoris.pulse.ingest.primary.robots.RobotsGate;
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,9 +47,40 @@ class PrimaryRssLiveIT {
         PrimarySourceProperties props = new PrimarySourceProperties();
         props.setConnectTimeout(Duration.ofSeconds(10));
         props.setRequestTimeout(Duration.ofSeconds(30));
+
         GenericRssAdapter rss = new GenericRssAdapter(new HttpFeedFetcher(props), Clock.systemUTC());
+        AdapterDispatcher dispatcher = new AdapterDispatcher(Map.of(GenericRssAdapter.HANDLER, rss));
+
+        // Der Live-Test läuft durch DASSELBE Gate wie die Produktion — er darf das Sicherheitsnetz
+        // nicht umgehen. Nebeneffekt: er prüft gleich mit, ob die echten robots.txt von EZB und Fed
+        // uns den Feed-Pfad tatsächlich erlauben.
+        RobotsGate gate = new CachingRobotsGate(
+                new HttpPolicyFetcher(props), JsonMapper.builder().build(), props.getUserAgent(),
+                props.getRobotsSuccessTtl(), props.getRobotsFailureTtl(), props.getRobotsCacheMaxHosts(),
+                Clock.systemUTC(), props.getInvitationMaxAge());
+
         return new IngestPrimarySourcesUsecase(
-                registry, new AdapterDispatcher(Map.of(GenericRssAdapter.HANDLER, rss)));
+                registry, new RobotsGatedAdapter(dispatcher, gate, Clock.systemUTC()));
+    }
+
+    @Test
+    void ecbAndFedRobotsTxtActuallyPermitOurBot() {
+        // Wenn das hier rot wird, hat sich die Erlaubnislage einer aktiven Quelle geändert — dann
+        // gehört sie in der Registry auf enabled:false, nicht der Test angepasst.
+        PrimarySourceProperties props = new PrimarySourceProperties();
+        RobotsGate gate = new CachingRobotsGate(
+                new HttpPolicyFetcher(props), JsonMapper.builder().build(), props.getUserAgent(),
+                props.getRobotsSuccessTtl(), props.getRobotsFailureTtl(), props.getRobotsCacheMaxHosts(),
+                Clock.systemUTC(), props.getInvitationMaxAge());
+
+        assertThat(registry.enabledSources()).allSatisfy(source -> {
+            RobotsGate.Decision decision = gate.check(new FetchIntent(
+                    source.id(), URI.create(source.access().url()),
+                    source.access().type(), source.expressInvitation()));
+            assertThat(decision.allowed())
+                    .as("Quelle %s (%s): %s", source.id(), source.access().url(), decision.reason())
+                    .isTrue();
+        });
     }
 
     @Test

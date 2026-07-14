@@ -1,11 +1,17 @@
 package com.lucoris.pulse.ingest.config;
 
 import com.lucoris.pulse.ingest.primary.AdapterDispatcher;
-import com.lucoris.pulse.ingest.primary.FeedFetcher;
 import com.lucoris.pulse.ingest.primary.GenericRssAdapter;
+import com.lucoris.pulse.ingest.primary.TdmAwareFeedFetcher;
+import com.lucoris.pulse.ingest.primary.adapter.HttpFeedFetcher;
 import com.lucoris.pulse.ingest.primary.IngestPrimarySourcesUsecase;
 import com.lucoris.pulse.ingest.primary.PrimarySourceManifestLoader;
+import com.lucoris.pulse.ingest.primary.RobotsGatedAdapter;
 import com.lucoris.pulse.ingest.primary.SourceLoadValidator;
+import com.lucoris.pulse.ingest.primary.robots.CachingRobotsGate;
+import com.lucoris.pulse.ingest.primary.robots.InvitationVerifier;
+import com.lucoris.pulse.ingest.primary.robots.PolicyFetcher;
+import com.lucoris.pulse.ingest.primary.robots.RobotsGate;
 import java.time.Clock;
 import java.util.Map;
 import org.springframework.boot.ApplicationRunner;
@@ -42,9 +48,19 @@ public class PrimarySourcesConfig {
         return new PrimarySourceManifestLoader(JsonMapper.builder().build(), props.getManifest());
     }
 
+    /**
+     * Der dritte Vorbehaltskanal, als Dekorator um den HTTP-Fetcher: erklärt die Feed-Antwort einen
+     * TDM-Vorbehalt im Header, wird das Dokument verworfen, bevor der Parser es sieht. Kein Adapter
+     * kann das umgehen — er bekommt gar nichts anderes injiziert.
+     */
     @Bean
-    GenericRssAdapter genericRssAdapter(FeedFetcher feedFetcher) {
-        return new GenericRssAdapter(feedFetcher, Clock.systemUTC());
+    TdmAwareFeedFetcher tdmAwareFeedFetcher(HttpFeedFetcher httpFeedFetcher) {
+        return new TdmAwareFeedFetcher(httpFeedFetcher);
+    }
+
+    @Bean
+    GenericRssAdapter genericRssAdapter(TdmAwareFeedFetcher tdmAwareFeedFetcher) {
+        return new GenericRssAdapter(tdmAwareFeedFetcher, Clock.systemUTC());
     }
 
     /** Routing-Tabelle {@code handler} -> Adapter. Weitere Handler (sec_edgar, ...) kommen hier dazu. */
@@ -53,10 +69,35 @@ public class PrimarySourcesConfig {
         return new AdapterDispatcher(Map.of(GenericRssAdapter.HANDLER, genericRssAdapter));
     }
 
+    /** robots.txt-/TDM-Prüfung mit Cache je Host. Fail-closed: keine Auskunft = kein Abruf. */
+    @Bean
+    RobotsGate robotsGate(PolicyFetcher policyFetcher, PrimarySourceProperties props) {
+        return new CachingRobotsGate(
+                policyFetcher,
+                JsonMapper.builder().build(),
+                props.getUserAgent(),
+                props.getRobotsSuccessTtl(),
+                props.getRobotsFailureTtl(),
+                props.getRobotsCacheMaxHosts(),
+                Clock.systemUTC(),
+                props.getInvitationMaxAge());
+    }
+
+    /**
+     * DAS Sicherheitsnetz: der Gate-Dekorator liegt VOR dem Dispatcher, nicht dahinter. Jeder
+     * Zugriff auf eine Quelle — heute RSS, morgen sec_edgar — läuft dadurch zwangsläufig durch die
+     * Erlaubnisprüfung. Usecase und Validator bekommen ausschließlich diesen Adapter injiziert,
+     * nie den nackten Dispatcher.
+     */
+    @Bean
+    RobotsGatedAdapter gatedSourceAdapter(AdapterDispatcher adapterDispatcher, RobotsGate robotsGate) {
+        return new RobotsGatedAdapter(adapterDispatcher, robotsGate, Clock.systemUTC());
+    }
+
     @Bean
     IngestPrimarySourcesUsecase ingestPrimarySourcesUsecase(
-            PrimarySourceManifestLoader primarySourceManifestLoader, AdapterDispatcher adapterDispatcher) {
-        return new IngestPrimarySourcesUsecase(primarySourceManifestLoader, adapterDispatcher);
+            PrimarySourceManifestLoader primarySourceManifestLoader, RobotsGatedAdapter gatedSourceAdapter) {
+        return new IngestPrimarySourcesUsecase(primarySourceManifestLoader, gatedSourceAdapter);
     }
 
     /**
@@ -67,9 +108,15 @@ public class PrimarySourcesConfig {
     @Bean
     @Profile("validate-sources")
     ApplicationRunner sourceLoadValidationRunner(
-            PrimarySourceManifestLoader primarySourceManifestLoader, AdapterDispatcher adapterDispatcher) {
-        SourceLoadValidator validator =
-                new SourceLoadValidator(primarySourceManifestLoader, adapterDispatcher, Clock.systemUTC());
+            PrimarySourceManifestLoader primarySourceManifestLoader,
+            RobotsGatedAdapter gatedSourceAdapter,
+            PolicyFetcher policyFetcher,
+            RobotsGate robotsGate) {
+        // Der InvitationVerifier ruft die Einladungsseite ab — deshalb hängt er hier und NICHT im
+        // Ingest-Pfad: der würde sonst bei jedem Poll eine HTML-Seite mitziehen.
+        SourceLoadValidator validator = new SourceLoadValidator(
+                primarySourceManifestLoader, gatedSourceAdapter, Clock.systemUTC(),
+                new InvitationVerifier(policyFetcher), robotsGate);
         return args -> validator.validate();
     }
 }

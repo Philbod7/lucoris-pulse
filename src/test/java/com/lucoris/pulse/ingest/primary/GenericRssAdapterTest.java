@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import com.lucoris.pulse.ingest.primary.FeedFetcher.FeedResponse;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -171,7 +172,8 @@ class GenericRssAdapterTest {
 
     @Test
     void unparsableBodyYieldsEmptyListInsteadOfThrowing() {
-        FeedFetcher muell = url -> Optional.of("das ist kein XML".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        FeedFetcher muell = url -> Optional.of(
+                new FeedFetcher.FeedResponse("das ist kein XML".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
         assertThat(new GenericRssAdapter(muell, CLOCK).fetch(syntheticSource("muell", ATOM))).isEmpty();
     }
@@ -189,7 +191,7 @@ class GenericRssAdapterTest {
                 id, "Beispiel-Institution", "central_bank", "EA", 1, List.of(),
                 new Access("rss", url.toString(), "rss2.0"),
                 GenericRssAdapter.HANDLER, new Poll("interval", 300, null),
-                true, "verified", "A", null, null);
+                true, "verified", "A", null, null, null);
     }
 
     /** Fake-Fetcher: liefert Fixtures aus dem Test-Classpath, sonst „nicht abrufbar". */
@@ -202,7 +204,7 @@ class GenericRssAdapterTest {
         }
 
         @Override
-        public Optional<byte[]> fetch(URI url) {
+        public Optional<FeedResponse> fetch(URI url) {
             String resource = resourceByUrl.get(url);
             if (resource == null) {
                 return Optional.empty(); // wie ein 404
@@ -211,7 +213,7 @@ class GenericRssAdapterTest {
                 if (in == null) {
                     throw new AssertionError("Fixture fehlt im Test-Classpath: " + resource);
                 }
-                return Optional.of(in.readAllBytes());
+                return Optional.of(new FeedResponse(in.readAllBytes()));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
