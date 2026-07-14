@@ -14,12 +14,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Live-Integrationstest gegen die ECHTEN Feeds von ECB und Fed.
+ * Live-Integrationstest gegen die ECHTEN Feeds ALLER aktivierten Quellen (heute: ECB und Fed).
+ *
+ * <p>Was „aktiviert" heißt, entscheidet allein die Registry ({@code enabled: true}) — dieser Test
+ * liest sie und friert den heutigen Stand bewusst NICHT ein. Eine neue Quelle scharfzuschalten ist
+ * damit eine reine Manifest-Änderung; der Test zieht von selbst mit und deckt sie ab.
  *
  * <p><b>Manuell / vom Standard-Build ausgeschlossen:</b> läuft nur bei gesetzter Umgebungsvariable
  * {@code PRIMARY_LIVE_IT=true} — genau wie {@code GdeltLiveDayIngestIT}. Ohne die Variable
@@ -52,8 +57,8 @@ class PrimaryRssLiveIT {
         AdapterDispatcher dispatcher = new AdapterDispatcher(Map.of(GenericRssAdapter.HANDLER, rss));
 
         // Der Live-Test läuft durch DASSELBE Gate wie die Produktion — er darf das Sicherheitsnetz
-        // nicht umgehen. Nebeneffekt: er prüft gleich mit, ob die echten robots.txt von EZB und Fed
-        // uns den Feed-Pfad tatsächlich erlauben.
+        // nicht umgehen. Nebeneffekt: er prüft gleich mit, ob die echten robots.txt der aktivierten
+        // Quellen uns den Feed-Pfad tatsächlich erlauben.
         RobotsGate gate = new CachingRobotsGate(
                 new HttpPolicyFetcher(props), JsonMapper.builder().build(), props.getUserAgent(),
                 props.getRobotsSuccessTtl(), props.getRobotsFailureTtl(), props.getRobotsCacheMaxHosts(),
@@ -64,7 +69,7 @@ class PrimaryRssLiveIT {
     }
 
     @Test
-    void ecbAndFedRobotsTxtActuallyPermitOurBot() {
+    void robotsTxtOfEveryEnabledSourceActuallyPermitsOurBot() {
         // Wenn das hier rot wird, hat sich die Erlaubnislage einer aktiven Quelle geändert — dann
         // gehört sie in der Registry auf enabled:false, nicht der Test angepasst.
         PrimarySourceProperties props = new PrimarySourceProperties();
@@ -84,35 +89,45 @@ class PrimaryRssLiveIT {
     }
 
     @Test
-    void bothEnabledFeedsDeliverUsableEventsRightNow() {
+    void everyEnabledFeedDeliversUsableEventsRightNow() {
+        // Welche Quellen aktiviert sind, sagt die Registry — nicht dieser Test. Sonst müsste er bei
+        // jeder scharfgeschalteten Quelle angefasst werden, und genau das soll er ja absichern.
+        Map<String, IngestSource> byId = registry.enabledSources().stream()
+                .collect(Collectors.toMap(IngestSource::id, source -> source));
+
         List<PrimaryEvent> events = usecase.run();
 
         assertThat(events).isNotEmpty();
 
-        // Beide aktivierten Quellen müssen etwas geliefert haben.
+        // JEDE aktivierte Quelle muss etwas geliefert haben. Eine, die nichts bringt, fällt hier auf:
+        // usecase.run() protokolliert einen kaputten Feed nur und macht weiter.
         assertThat(events).extracting(PrimaryEvent::sourceId)
-                .contains("ecb-press", "fed-monetary");
+                .as("aktivierte Quelle(n) ohne einen einzigen Eintrag")
+                .containsAll(byId.keySet());
 
-        // Jedes Ereignis ist brauchbar: Deep-Link, plausibles Datum, Rechtslage der Quelle.
         Instant jetzt = Instant.now();
         assertThat(events).allSatisfy(event -> {
+            IngestSource source = byId.get(event.sourceId());
+            assertThat(source)
+                    .as("Ereignis mit sourceId '%s', die gar nicht aktiviert ist", event.sourceId())
+                    .isNotNull();
+
+            // Quellunabhängig: was der Ingest an jedem Ereignis braucht.
             assertThat(event.url()).startsWith("http");
             assertThat(event.title()).isNotBlank();
             assertThat(event.publishedAt()).isNotNull();
             assertThat(event.publishedAt()).isBefore(jetzt.plusSeconds(3600)); // nicht aus der Zukunft
             assertThat(event.publishedAt()).isAfter(Instant.parse("2000-01-01T00:00:00Z"));
-            assertThat(event.legalClass()).isEqualTo("A");
             assertThat(event.fetchedAt()).isNotNull();
-        });
 
-        // Die ECB-Attributionsformel muss am Ereignis hängen — das Rendering baut daraus die Quellzeile.
-        assertThat(events)
-                .filteredOn(event -> "ecb-press".equals(event.sourceId()))
-                .isNotEmpty()
-                .allSatisfy(event -> {
-                    assertThat(event.attribution()).isNotNull();
-                    assertThat(event.attribution().required()).isTrue();
-                    assertThat(event.attribution().formula()).contains("Europaeische Zentralbank");
-                });
+            // Rechtslage und Attributionsformel hängen unverändert am Ereignis — das Rendering baut
+            // daraus die Quellzeile. Geprüft wird gegen DIE QUELLE, aus der das Ereignis stammt,
+            // nicht gegen eine hier eingefrorene Konstante: eine Klasse-B-Quelle scharfzuschalten
+            // darf diesen Test nicht rot machen. Dass im Manifest die richtigen Werte stehen (z.B.
+            // die ECB-Formel), sichert PrimarySourceManifestLoaderTest offline ab; hier geht es um
+            // das Durchreichen.
+            assertThat(event.legalClass()).isEqualTo(source.legalClass());
+            assertThat(event.attribution()).isEqualTo(source.attribution());
+        });
     }
 }
