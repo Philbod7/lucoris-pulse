@@ -142,7 +142,7 @@
       "originates": ["bank_rate_decision","mpc_minutes","speech"],
       "access": { "type": "rss", "url": "https://www.bankofengland.co.uk/rss/news", "format": "rss2.0" },
       "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 600 },
-      "enabled": false, "confidence": "verify_endpoint", "legal_class": "B"
+      "enabled": true, "confidence": "verify_endpoint", "legal_class": "B"
     },
     {
       "id": "bis-cbspeeches", "institution": "Bank for International Settlements", "category": "central_bank", "region": "GLOBAL", "tier": 2,
@@ -235,9 +235,9 @@
     {
       "id": "bafin-datenbanken", "institution": "BaFin (Stimmrechte / Directors' Dealings)", "category": "company_primary", "region": "DE", "tier": 2,
       "originates": ["voting_rights_consolidated","directors_dealings_art19"],
-      "access": { "type": "landing", "url": "https://www.bafin.de/DE/PublikationenDaten/Datenbanken/", "format": "html" },
-      "handler": "html_index", "poll": { "mode": "interval", "seconds": 3600 },
-      "enabled": false, "confidence": "landing_only", "legal_class": "A",
+      "access": { "type": "landing", "url": "https://www.bafin.de/DE/service/rss/_function/rssnewsfeed.xml?nn=150166", "format": "rss2.0" },
+      "handler": "generic_rss", "poll": { "mode": "interval", "seconds": 3600 },
+      "enabled": true, "confidence": "landing_only", "legal_class": "A",
       "notes": "Amtlich, frei, zeitnah aktualisiert. OFFEN: robots/ToS + Exportformate pruefen, BEVOR verdrahtet wird. DE-Bruecke bis ESAP."
     },
     {
@@ -247,6 +247,50 @@
       "handler": "marketdata_provider", "poll": { "mode": "interval", "seconds": 60 },
       "enabled": false, "confidence": "landing_only", "legal_class": "A",
       "notes": "Reine Marktbewegungen haben KEINEN Dokument-Ursprung — der Fakt IST der Kurs."
+    },
+    {
+      "id": "globenewswire-europe",
+      "institution": "GlobeNewswire (Nasdaq)",
+      "category": "company_primary",
+      "region": "GLOBAL",
+      "tier": 2,
+      "originates": ["regulated_disclosure_eu_nordics_fr", "earnings_release", "corporate_press_release"],
+      "access": { "type": "rss", "url": "https://www.globenewswire.com/RssFeed/subjectcode/85-European%20Regulatory%20News/feedTitle/GlobeNewswire%20-%20European%20Regulatory%20News", "format": "rss2.0" },
+      "handler": "generic_rss",
+      "poll": { "mode": "interval", "seconds": 300 },
+      "enabled": true,
+      "confidence": "verify_endpoint",
+      "legal_class": "B",
+      "notes": "Wire-Dienst mit ÖFFENTLICHER RSS-Liste (nach Börse/Land/Kategorie filterbar) und ausdrücklicher Journalisten-Einladung zum Feed-Download; Newsfeed 'real-time and royalty-free'. Offizieller Pflichtmeldungs-Kanal für Nasdaq Nordics/Baltics, zugelassener Verbreiter regulierter Information in FR. Deckt NICHT deutsche EQS-Emittenten — DE-Brücke (Emittenten-IR, BaFin, Bundesanzeiger-Check) bleibt bis ESAP. Onboarding: aus /rss/list gezielt kuratierte Teilfeeds wählen (z.B. Nordic Regulatory + gewünschte Kategorien) statt Gesamtstrom; robots inkl. KI-/Bot-UA-Gruppen und TDM-Kanäle prüfen — eine spezifische Bot-Sperre würde gewinnen. Einladungs-Evidenz (falls generisches Disallow auftaucht) dokumentierbar unter https://www.globenewswire.com/newswire-press-release-content ('Journalists & Bloggers: ... download one of our RSS news release feeds'); access.url beim Verdrahten durch die konkreten Teilfeed-XMLs ersetzen (ein Registry-Eintrag je gewähltem Teilfeed, Muster bmf-presse/bmf-finanzmarkt)."
+    },    {
+      "id": "globenewswire-company",
+      "institution": "GlobeNewswire (Nasdaq)",
+      "category": "company_primary",
+      "region": "GLOBAL",
+      "tier": 2,
+      "originates": ["regulated_disclosure_eu_nordics_fr", "earnings_release", "corporate_press_release"],
+      "access": { "type": "rss", "url": "https://www.globenewswire.com/RssFeed/subjectcode/10-Company%20Regulatory%20Filings/feedTitle/GlobeNewswire%20-%20Company%20Regulatory%20Filings", "format": "rss2.0" },
+      "handler": "generic_rss",
+      "poll": { "mode": "interval", "seconds": 300 },
+      "enabled": true,
+      "confidence": "verify_endpoint",
+      "legal_class": "B",
+      "notes": "Wire-Dienst mit ÖFFENTLICHER RSS-Liste (nach Börse/Land/Kategorie filterbar) und ausdrücklicher Journalisten-Einladung zum Feed-Download; Newsfeed 'real-time and royalty-free'. Offizieller Pflichtmeldungs-Kanal für Nasdaq Nordics/Baltics, zugelassener Verbreiter regulierter Information in FR. Deckt NICHT deutsche EQS-Emittenten — DE-Brücke (Emittenten-IR, BaFin, Bundesanzeiger-Check) bleibt bis ESAP. Onboarding: aus /rss/list gezielt kuratierte Teilfeeds wählen (z.B. Nordic Regulatory + gewünschte Kategorien) statt Gesamtstrom; robots inkl. KI-/Bot-UA-Gruppen und TDM-Kanäle prüfen — eine spezifische Bot-Sperre würde gewinnen. Einladungs-Evidenz (falls generisches Disallow auftaucht) dokumentierbar unter https://www.globenewswire.com/newswire-press-release-content ('Journalists & Bloggers: ... download one of our RSS news release feeds'); access.url beim Verdrahten durch die konkreten Teilfeed-XMLs ersetzen (ein Registry-Eintrag je gewähltem Teilfeed, Muster bmf-presse/bmf-finanzmarkt)."
+    },
+    {
+      "id": "globenewswire-shareholder",
+      "institution": "GlobeNewswire (Nasdaq)",
+      "category": "company_primary",
+      "region": "GLOBAL",
+      "tier": 2,
+      "originates": ["regulated_disclosure_eu_nordics_fr", "earnings_release", "corporate_press_release"],
+      "access": { "type": "rss", "url": "https://www.globenewswire.com/RssFeed/subjectcode/59-Major%20Shareholder%20Announcements/feedTitle/GlobeNewswire%20-%20Major%20Shareholder%20Announcements", "format": "rss2.0" },
+      "handler": "generic_rss",
+      "poll": { "mode": "interval", "seconds": 300 },
+      "enabled": true,
+      "confidence": "verify_endpoint",
+      "legal_class": "B",
+      "notes": "Wire-Dienst mit ÖFFENTLICHER RSS-Liste (nach Börse/Land/Kategorie filterbar) und ausdrücklicher Journalisten-Einladung zum Feed-Download; Newsfeed 'real-time and royalty-free'. Offizieller Pflichtmeldungs-Kanal für Nasdaq Nordics/Baltics, zugelassener Verbreiter regulierter Information in FR. Deckt NICHT deutsche EQS-Emittenten — DE-Brücke (Emittenten-IR, BaFin, Bundesanzeiger-Check) bleibt bis ESAP. Onboarding: aus /rss/list gezielt kuratierte Teilfeeds wählen (z.B. Nordic Regulatory + gewünschte Kategorien) statt Gesamtstrom; robots inkl. KI-/Bot-UA-Gruppen und TDM-Kanäle prüfen — eine spezifische Bot-Sperre würde gewinnen. Einladungs-Evidenz (falls generisches Disallow auftaucht) dokumentierbar unter https://www.globenewswire.com/newswire-press-release-content ('Journalists & Bloggers: ... download one of our RSS news release feeds'); access.url beim Verdrahten durch die konkreten Teilfeed-XMLs ersetzen (ein Registry-Eintrag je gewähltem Teilfeed, Muster bmf-presse/bmf-finanzmarkt)."
     }
   ],
 
