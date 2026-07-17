@@ -9,6 +9,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -32,17 +33,24 @@ import org.slf4j.LoggerFactory;
  * <p><b>Warum mehrere Tage je Lauf.</b> Die Datei des laufenden Tages gibt es tagsüber schlicht noch
  * nicht (die SEC antwortet dann mit 403). Läse dieser Adapter nur „heute", lieferte er nur zwischen
  * 22:00 ET und Mitternacht überhaupt etwas — ein Neustart in diesem Fenster verlöre den Tag
- * stillschweigend, und genau das darf ein Sicherheitsnetz nicht. Er liest deshalb die letzten
- * {@code indexDays} Kalendertage (Default 3, überbrückt auch ein Wochenende) und mischt sie. Die
- * Überlappung kostet nichts: {@link DedupKeys} kollabiert alles bereits Gespeicherte.
+ * stillschweigend, und genau das darf ein Sicherheitsnetz nicht.
+ *
+ * <p><b>Wie weit zurück, entscheidet der letzte Erfolg</b> ({@link LastSuccessLookup}, gespeist aus
+ * {@code primary_source_state}). Im Normalbetrieb — alle paar Stunden ein Lauf — ist das genau ein
+ * Tag; nach einem Ausfall wächst das Fenster bis {@code maxIndexDays} (Default 7, wie die Rückschau
+ * des Echtzeit-Pfads). So ist der Voll-Abgleich im Alltag billig und nach einer Störung trotzdem
+ * vollständig. Der Tag des letzten Erfolgs wird IMMER mitgelesen: ein Lauf zählt auch dann als
+ * Erfolg, wenn die Datei des laufenden Tages noch fehlte — ohne dieses Mitlesen entstünde genau dort
+ * ein stilles Loch. Die Überlappung kostet nichts: {@link DedupKeys} kollabiert alles bereits
+ * Gespeicherte.
  *
  * <p><b>Die Ungenauigkeit ist bewusst.</b> {@code Date Filed} ist ein Tag, kein Zeitpunkt — daraus
- * wird der Tagesbeginn UTC. Das ist nachweislich zu früh, aber es ist die einzige Angabe, die die
+ * wird der Tagesbeginn UTC. Das ist nachweislich ungenau, aber es ist die einzige Angabe, die die
  * Quelle macht; sie zu erfinden wäre schlimmer. Im Regelfall ist das folgenlos: dieselbe Einreichung
- * kommt über den Echtzeit-Pfad mit exaktem {@code acceptanceDateTime} und erzeugt via
- * {@link SecEdgarUrls#filingPermalink} denselben {@code dedup_key} — wer zuerst da ist, gewinnt, und
- * das ist fast immer der schnellere Pfad. Nur Firmen außerhalb der Watchlist landen mit
- * Mitternachts-Zeit in der Datenbank.
+ * kommt über den Echtzeit-Pfad mit exaktem {@code acceptanceDateTime} und trägt denselben
+ * {@link SecEdgarUrls#dedupKey(String) Dedup-Schlüssel} — wer zuerst da ist, gewinnt, und das ist
+ * fast immer der schnellere Pfad. Nur Firmen außerhalb der Watchlist landen mit Mitternachts-Zeit in
+ * der Datenbank.
  *
  * <p>POJO ohne Spring-Annotationen; kennt keinen {@code HttpClient} und wirft nie.
  */
@@ -66,26 +74,30 @@ public final class SecEdgarDailyIndexAdapter implements SourceAdapter {
     private static final int SPALTEN = 5;
 
     private final FeedFetcher fetcher;
+    private final LastSuccessLookup lastSuccess;
     private final Clock clock;
-    private final int indexDays;
+    private final int maxIndexDays;
 
-    public SecEdgarDailyIndexAdapter(FeedFetcher fetcher, Clock clock, int indexDays) {
+    public SecEdgarDailyIndexAdapter(FeedFetcher fetcher, LastSuccessLookup lastSuccess, Clock clock,
+            int maxIndexDays) {
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
+        this.lastSuccess = Objects.requireNonNull(lastSuccess, "lastSuccess");
         this.clock = Objects.requireNonNull(clock, "clock");
-        if (indexDays < 1) {
-            throw new IllegalArgumentException("indexDays muss >= 1 sein, war: " + indexDays);
+        if (maxIndexDays < 1) {
+            throw new IllegalArgumentException("maxIndexDays muss >= 1 sein, war: " + maxIndexDays);
         }
-        this.indexDays = indexDays;
+        this.maxIndexDays = maxIndexDays;
     }
 
     @Override
     public List<FeedItem> fetch(IngestSource source) {
         Instant fetchedAt = clock.instant();
         LocalDate heute = LocalDate.ofInstant(fetchedAt, SEC_ZONE);
+        int fenster = fensterTage(source, heute);
 
         List<FeedItem> items = new ArrayList<>();
         int gelesen = 0;
-        for (int zurueck = 0; zurueck < indexDays; zurueck++) {
+        for (int zurueck = 0; zurueck < fenster; zurueck++) {
             LocalDate tag = heute.minusDays(zurueck);
             URI url = URI.create(tagesIndexUrl(source, tag));
             Optional<FeedFetcher.FeedResponse> response = fetcher.fetch(url);
@@ -101,9 +113,36 @@ public final class SecEdgarDailyIndexAdapter implements SourceAdapter {
 
         if (gelesen == 0) {
             log.info("Quelle {}: keiner der letzten {} Tagesindizes abrufbar — übersprungen",
-                    source.id(), indexDays);
+                    source.id(), fenster);
         }
         return List.copyOf(items);
+    }
+
+    /**
+     * Wie viele Kalendertage rückwärts gelesen werden: alle Tage seit dem letzten Erfolg
+     * einschließlich seines eigenen, gedeckelt auf {@code maxIndexDays}. Ohne bekannten Erfolg
+     * (Kaltstart, oder gar kein Zustands-Store wie bei der Probe) die volle Rückschau.
+     *
+     * <p>Gerechnet wird in KALENDERTAGEN der SEC-Zone, nicht in Stunden: der Index ist nach Tagen
+     * abgelegt. Ein Lauf sechs Stunden nach dem letzten, aber jenseits der Datumsgrenze, muss zwei
+     * Dateien lesen — eine Stundenrechnung käme hier auf „einen Tag" und verlöre den Vortag.
+     */
+    private int fensterTage(IngestSource source, LocalDate heute) {
+        Optional<Instant> letzter = lastSuccess.lastSuccessOf(source.id());
+        if (letzter.isEmpty()) {
+            log.info("Quelle {}: kein früherer Erfolg bekannt — volle Rückschau über {} Tage",
+                    source.id(), maxIndexDays);
+            return maxIndexDays;
+        }
+        LocalDate seit = LocalDate.ofInstant(letzter.get(), SEC_ZONE);
+        long tage = ChronoUnit.DAYS.between(seit, heute) + 1; // den Tag des letzten Erfolgs mitlesen
+        if (tage > maxIndexDays) {
+            log.warn("Quelle {}: letzter Erfolg {} liegt {} Tage zurück — auf {} Tage gedeckelt,"
+                            + " ältere Einreichungen holt dieser Lauf NICHT mehr nach",
+                    source.id(), seit, tage - 1, maxIndexDays);
+            return maxIndexDays;
+        }
+        return (int) Math.max(tage, 1); // Uhrsprung rückwärts: mindestens der heutige Tag
     }
 
     /** {@code .../daily-index/2026/QTR3/master.20260715.idx} */
@@ -155,7 +194,11 @@ public final class SecEdgarDailyIndexAdapter implements SourceAdapter {
                     "en",
                     fetchedAt,
                     source.legalClass(),
-                    source.attribution()));
+                    source.attribution(),
+                    // Derselbe Schlüssel wie im Echtzeit-Pfad: die Accession. Ein Filing mit
+                    // Mit-Anmeldern steht hier MEHRFACH (je CIK eine Zeile) — über den Permalink
+                    // dedupliziert würde es doppelt gespeichert.
+                    SecEdgarUrls.dedupKey(accession)));
         }
 
         if (verworfen > 0) {

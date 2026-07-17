@@ -71,8 +71,11 @@ class PrimarySourceProbeIT {
                 new SecEdgarCikLoader(JsonMapper.builder().build(), props.getSecEdgar().getCiks()),
                 JsonMapper.builder().build(), Clock.systemUTC(),
                 props.getSecEdgar().getPacing(), props.getSecEdgar().getLookback());
+        // Die Probe kennt keinen Zustands-Store -> kein letzter Erfolg -> volle Rückschau: sie soll
+        // zeigen, was die Quelle maximal hergibt.
         SecEdgarDailyIndexAdapter edgarDaily = new SecEdgarDailyIndexAdapter(
-                fetcher, Clock.systemUTC(), props.getSecEdgar().getDailyIndexDays());
+                fetcher, sourceId -> java.util.Optional.empty(), Clock.systemUTC(),
+                props.getSecEdgar().getDailyIndexMaxDays());
         AdapterDispatcher dispatcher = new AdapterDispatcher(Map.of(
                 GenericRssAdapter.HANDLER, rss,
                 SecEdgarAdapter.HANDLER, edgar,

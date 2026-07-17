@@ -73,15 +73,17 @@ public class PrimarySourceProperties {
         private Duration lookback = Duration.ofDays(7);
 
         /**
-         * Wie viele Tagesindizes der Voll-Abgleich ({@code sec_edgar_daily}) je Lauf liest.
+         * OBERGRENZE der Rückschau des Voll-Abgleichs ({@code sec_edgar_daily}) — kein Fixwert.
          *
-         * <p>Nicht 1: die Datei des laufenden Tages erscheint erst gegen 22:00 ET (davor antwortet
-         * die SEC mit 403). Läse der Adapter nur „heute", lieferte er nur zwischen 22:00 ET und
-         * Mitternacht überhaupt etwas — ein Neustart in diesem Fenster verlöre den Tag still. Genau
-         * das darf ein Sicherheitsnetz nicht. 3 Tage überbrücken zudem ein Wochenende. Die
-         * Überlappung kostet nichts: {@code DedupKeys} kollabiert alles bereits Gespeicherte.
+         * <p>Wie viele Tagesindizes ein Lauf wirklich liest, ergibt sich aus dem letzten Erfolg
+         * ({@code primary_source_state}): im Normalbetrieb genau einer, nach einem Ausfall
+         * entsprechend mehr. Diese Grenze deckelt den Nachholbedarf und entspricht bewusst dem
+         * {@link #lookback} des Echtzeit-Pfads — beide Pfade holen damit gleich weit zurück.
+         *
+         * <p>Ein längerer Ausfall als diese Spanne verliert Einreichungen von Firmen außerhalb der
+         * Watchlist endgültig; der Adapter protokolliert das laut.
          */
-        private int dailyIndexDays = 3;
+        private int dailyIndexMaxDays = 7;
 
         public String getCiks() {
             return ciks;
@@ -107,12 +109,12 @@ public class PrimarySourceProperties {
             this.lookback = lookback;
         }
 
-        public int getDailyIndexDays() {
-            return dailyIndexDays;
+        public int getDailyIndexMaxDays() {
+            return dailyIndexMaxDays;
         }
 
-        public void setDailyIndexDays(int dailyIndexDays) {
-            this.dailyIndexDays = dailyIndexDays;
+        public void setDailyIndexMaxDays(int dailyIndexMaxDays) {
+            this.dailyIndexMaxDays = dailyIndexMaxDays;
         }
     }
 

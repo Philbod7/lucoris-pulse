@@ -168,15 +168,20 @@ ihre robots.txt mit **403** → fail-closed ebenfalls gesperrt. Es bleiben zwei 
   Lookback 7 Tage hält den Batch klein, weil `filings.recent` bis ~1000 Einträge führt.
 - **`sec_edgar_daily`** ist das Netz darunter: der Tagesindex führt ALLE Einreichungen eines Tages,
   auch von Firmen außerhalb der Watchlist — dafür erst abends und ohne Uhrzeit (`publishedAt` =
-  Tagesbeginn UTC, bewusste Ungenauigkeit). Er liest die letzten `dailyIndexDays` (Default 3)
-  Kalendertage und mischt sie: die Datei des laufenden Tages gibt es erst ~22:00 ET (davor 403), und
-  ein Netz, das nur zwischen 22:00 ET und Mitternacht fängt, wäre keines. Die Überlappung entdoppelt
-  `DedupKeys`.
-- **Beide erzeugen denselben `dedup_key`**: `SecEdgarUrls.filingPermalink` konstruiert aus CIK +
-  Accession denselben Link (`/Archives/edgar/data/{cik}/{accOhneStriche}/{acc}-index.htm`),
-  `guid` = Accession → `DedupKeys` fällt darauf zurück. Kein Doppel-Insert; wer zuerst liefert,
-  gewinnt (fast immer der Echtzeit-Pfad mit dem exakten Zeitstempel). Der Permalink wird
-  **konstruiert, nicht übernommen** — EDGARs eigene Links zeigen firmenweit auf `getcompany`.
+  Tagesbeginn UTC, bewusste Ungenauigkeit). **Rückschau adaptiv:** alle Kalendertage seit dem letzten
+  Erfolg (`primary_source_state.last_success_at` via `LastSuccessLookup`), gedeckelt auf
+  `dailyIndexMaxDays` (Default 7); Normalbetrieb = ein Tag, Kaltstart/Ausfall = mehr. Nötig, weil die
+  Datei des laufenden Tages erst ~22:00 ET erscheint (davor 403) — ein Netz, das nur zwischen 22:00 ET
+  und Mitternacht fängt, wäre keines. Der Tag des letzten Erfolgs wird immer mitgelesen. Die
+  Überlappung entdoppelt `DedupKeys`. `poll` = 6 h.
+- **Beide erzeugen denselben `dedup_key` — über die Accession, nicht den Permalink.** Ein Filing mit
+  Mit-Anmeldern ist unter jeder beteiligten CIK erreichbar (der Tagesindex führt es je CIK einmal,
+  die submissions-API bei jeder CIK) und hat damit mehrere gültige Permalinks fürs selbe Dokument.
+  Der Permalink ist Darstellung, die **Accession** die Identität. Beide Adapter setzen deshalb
+  `FeedItem.dedupKey = SecEdgarUrls.dedupKey(accession)` (`sec-edgar:accession:<nr>`, konstantes
+  Präfix über beide Quellen), und `DedupKeys` gibt dem Vorrang. Kein Doppel-Insert; wer zuerst
+  liefert, gewinnt (fast immer der Echtzeit-Pfad mit dem exakten Zeitstempel). Der Anzeige-Permalink
+  wird **konstruiert, nicht übernommen** — EDGARs eigene Links zeigen firmenweit auf `getcompany`.
 - **`access.url` ist das Präfix**, das der Gate prüft; die Adapter fächern darunter auf. Beide
   Präfixe tragen keine tieferen robots-Regeln (geprüft) — Grenze bewusst in Kauf genommen (ADR 27).
 - `legal_class: A` (gemeinfrei, 17 U.S.C. § 105); Anzeige-Regel Institution+Datum+Deep-Link gilt

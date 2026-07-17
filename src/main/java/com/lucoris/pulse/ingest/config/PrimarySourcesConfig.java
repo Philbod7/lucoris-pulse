@@ -1,8 +1,10 @@
 package com.lucoris.pulse.ingest.config;
 
+import com.lucoris.pulse.core.domain.PrimarySourceState;
 import com.lucoris.pulse.ingest.primary.AdapterDispatcher;
 import com.lucoris.pulse.ingest.primary.FeedItemStore;
 import com.lucoris.pulse.ingest.primary.GenericRssAdapter;
+import com.lucoris.pulse.ingest.primary.LastSuccessLookup;
 import com.lucoris.pulse.ingest.primary.SourceStateStore;
 import com.lucoris.pulse.ingest.primary.TdmAwareFeedFetcher;
 import com.lucoris.pulse.ingest.primary.adapter.HttpFeedFetcher;
@@ -19,6 +21,7 @@ import com.lucoris.pulse.ingest.primary.robots.PolicyFetcher;
 import com.lucoris.pulse.ingest.primary.robots.RobotsGate;
 import java.time.Clock;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -93,9 +96,33 @@ public class PrimarySourcesConfig {
      */
     @Bean
     SecEdgarDailyIndexAdapter secEdgarDailyIndexAdapter(TdmAwareFeedFetcher tdmAwareFeedFetcher,
-            PrimarySourceProperties props) {
-        return new SecEdgarDailyIndexAdapter(tdmAwareFeedFetcher, Clock.systemUTC(),
-                props.getSecEdgar().getDailyIndexDays());
+            LastSuccessLookup lastSuccessLookup, PrimarySourceProperties props) {
+        return new SecEdgarDailyIndexAdapter(tdmAwareFeedFetcher, lastSuccessLookup, Clock.systemUTC(),
+                props.getSecEdgar().getDailyIndexMaxDays());
+    }
+
+    /**
+     * Woher der Tagesindex weiß, wie weit er zurücklesen muss: aus dem persistierten Quellen-Zustand.
+     * Bewusst die DB und kein Feld im Adapter — ein Wert im Arbeitsspeicher wäre nach einem Neustart
+     * weg, also genau im Ausfall-Fall, für den die lange Rückschau existiert.
+     */
+    @Bean
+    @Profile("ingest")
+    LastSuccessLookup lastSuccessLookup(SourceStateStore sourceStateStore) {
+        return sourceId -> Optional.ofNullable(sourceStateStore.loadAll().get(sourceId))
+                .map(PrimarySourceState::getLastSuccessAt);
+    }
+
+    /**
+     * Unter reinem {@code validate-sources} gibt es die Stores nicht (sie hängen an {@code ingest}) —
+     * ohne diesen Bean bräche die Load-Validierung an einer fehlenden Abhängigkeit. „Kein Zustand"
+     * ist hier zugleich die inhaltlich richtige Antwort: eine Probe soll zeigen, was die Quelle
+     * maximal hergibt, nicht ein inkrementelles Restfenster.
+     */
+    @Bean
+    @Profile("!ingest")
+    LastSuccessLookup fullWindowLookup() {
+        return sourceId -> Optional.empty();
     }
 
     /** Routing-Tabelle {@code handler} -> Adapter. Weitere Handler ({@code html_index}, ...) kommen hier dazu. */

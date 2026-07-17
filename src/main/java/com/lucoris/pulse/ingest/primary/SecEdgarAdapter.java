@@ -154,7 +154,11 @@ public final class SecEdgarAdapter implements SourceAdapter {
                     "en",
                     fetchedAt,
                     source.legalClass(),
-                    source.attribution()));
+                    source.attribution(),
+                    // Die Accession identifiziert die Einreichung, nicht der Permalink: bei
+                    // Mit-Anmeldern führen mehrere CIKs dasselbe Filing (und damit mehrere gültige
+                    // Permalinks). Nur so erkennt der Tagesindex-Pfad sie als dieselbe Meldung.
+                    SecEdgarUrls.dedupKey(accession)));
         }
         return items;
     }

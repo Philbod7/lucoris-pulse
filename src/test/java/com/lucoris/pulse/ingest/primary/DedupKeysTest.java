@@ -92,8 +92,41 @@ class DedupKeysTest {
         assertThat(DedupKeys.normalizeUrl("/nur/pfad.html")).isEqualTo("/nur/pfad.html");
     }
 
+    @Test
+    void einVomAdapterErklaerterSchluesselSchlaegtGuidUndLink() {
+        // Der EDGAR-Fall: dieselbe Einreichung ist unter JEDER beteiligten CIK erreichbar, also über
+        // mehrere gültige Permalinks. Der Link ist dort kein Schlüssel, sondern Darstellung — der
+        // Adapter kennt die kanonische Kennung (die Accession) und erklärt sie selbst.
+        FeedItem ueberHolding = itemMitSchluessel("sec-edgar",
+                "https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/0000100517-26-000135-index.htm",
+                "0000100517-26-000135", "sec-edgar:accession:0000100517-26-000135");
+        FeedItem ueberTochter = itemMitSchluessel("sec-edgar-daily-index",
+                "https://www.sec.gov/Archives/edgar/data/319687/000010051726000135/0000100517-26-000135-index.htm",
+                "0000100517-26-000135", "sec-edgar:accession:0000100517-26-000135");
+
+        assertThat(DedupKeys.keyFor(ueberHolding))
+                .isEqualTo(DedupKeys.keyFor(ueberTochter))
+                .isEqualTo("sec-edgar:accession:0000100517-26-000135");
+    }
+
+    @Test
+    void einLeererErklaerterSchluesselFaelltAufDieGenerischeRegelZurueck() {
+        // Kein Schlüssel ist besser als ein leerer: sonst würde eine schludrige Quelle alle ihre
+        // Meldungen auf denselben Schlüssel werfen und still gegenseitig verdrängen.
+        FeedItem leer = itemMitSchluessel("irgendwas", "https://example.org/a.html", "12345", "   ");
+        FeedItem fehlt = itemMitSchluessel("irgendwas", "https://example.org/a.html", "12345", null);
+
+        assertThat(DedupKeys.keyFor(leer)).isEqualTo("https://example.org/a.html");
+        assertThat(DedupKeys.keyFor(fehlt)).isEqualTo("https://example.org/a.html");
+    }
+
     private static FeedItem item(String sourceId, String url, String guid) {
         return new FeedItem(sourceId, "Institution", "Titel", url, guid, WANN,
                 null, "de", WANN, "A", null);
+    }
+
+    private static FeedItem itemMitSchluessel(String sourceId, String url, String guid, String dedupKey) {
+        return new FeedItem(sourceId, "Institution", "Titel", url, guid, WANN,
+                null, "de", WANN, "A", null, dedupKey);
     }
 }

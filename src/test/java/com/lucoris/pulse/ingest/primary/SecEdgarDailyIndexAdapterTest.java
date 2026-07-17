@@ -9,8 +9,10 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -36,15 +38,22 @@ class SecEdgarDailyIndexAdapterTest {
 
     private final ClasspathFeedFetcher fetcher = new ClasspathFeedFetcher(Map.of(HEUTE, FIXTURE));
 
-    /** {@code indexDays = 1}: nur „heute" — für die Fälle, die genau eine Datei betrachten. */
-    private final SecEdgarDailyIndexAdapter adapter = new SecEdgarDailyIndexAdapter(fetcher, CLOCK, 1);
+    /** Letzter Erfolg heute -> Fenster = 1 Tag: für die Fälle, die genau die heutige Datei betrachten. */
+    private static final LastSuccessLookup ERFOLG_HEUTE = id -> Optional.of(FETCHED_AT);
+    /** Kein Zustand bekannt -> volle Rückschau (Kaltstart, Probe, validate-sources). */
+    private static final LastSuccessLookup KEIN_ERFOLG = id -> Optional.empty();
+
+    private final SecEdgarDailyIndexAdapter adapter =
+            new SecEdgarDailyIndexAdapter(fetcher, ERFOLG_HEUTE, CLOCK, 7);
 
     @Test
     void theDatePathIsDerivedFromTheSecBusinessDayAndOnlyEightKsSurvive() {
         List<FeedItem> items = adapter.fetch(source());
 
-        // Von neun Datenzeilen bleiben die vier 8-K und das eine 8-K/A; die vier 424B2 fallen raus.
+        // Von zehn Datenzeilen bleiben die fünf 8-K und das eine 8-K/A; die vier 424B2 fallen raus.
+        // Die ersten beiden sind DIESELBE Einreichung unter zwei Mit-Anmeldern (siehe unten).
         assertThat(items).extracting(FeedItem::guid).containsExactly(
+                "0000100517-26-000135",
                 "0000100517-26-000135",
                 "0001437749-26-023636",
                 "0001104659-26-083743",
@@ -53,6 +62,27 @@ class SecEdgarDailyIndexAdapterTest {
         assertThat(items).extracting(FeedItem::title).contains(
                 "8-K - United Airlines Holdings, Inc.",
                 "8-K/A - GYRE THERAPEUTICS, INC.");
+    }
+
+    @Test
+    void aFilingWithCoRegistrantsHasSeveralValidPermalinksButOneIdentity() {
+        // DER Fall, der die permalink-basierte Dedup zerlegt hat: 0000100517-26-000135 steht im
+        // echten Tagesindex ZWEIMAL — einmal unter der Holding (CIK 100517), einmal unter der
+        // Tochter (CIK 319687). Beide URLs sind gültig und liefern dasselbe Dokument (live geprüft,
+        // HTTP 200). Über den Permalink dedupliziert läge das Filing zweimal in der Datenbank.
+        List<FeedItem> united = adapter.fetch(source()).stream()
+                .filter(i -> "0000100517-26-000135".equals(i.guid()))
+                .toList();
+
+        assertThat(united).hasSize(2);
+        assertThat(united).extracting(FeedItem::url).containsExactly(
+                "https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/0000100517-26-000135-index.htm",
+                "https://www.sec.gov/Archives/edgar/data/319687/000010051726000135/0000100517-26-000135-index.htm");
+
+        // Verschiedene Permalinks — EIN Schlüssel. Das ist der Punkt.
+        assertThat(united).extracting(FeedItem::url).doesNotHaveDuplicates();
+        assertThat(united).extracting(DedupKeys::keyFor)
+                .containsOnly("sec-edgar:accession:0000100517-26-000135");
     }
 
     @Test
@@ -79,16 +109,21 @@ class SecEdgarDailyIndexAdapterTest {
     }
 
     @Test
-    void bothEdgarHandlersProduceTheSameDedupKeyForTheSameFiling() {
-        // DAS ist der Vertrag zwischen den beiden Handlern: derselbe Filing-Permalink ⇒ derselbe
-        // dedup_key ⇒ die Meldung wird EINMAL gespeichert, egal welcher Pfad sie zuerst sieht.
-        FeedItem ausTagesindex = adapter.fetch(source()).getFirst();
+    void bothEdgarHandlersProduceTheSameDedupKeyEvenViaDifferentCiks() {
+        // DER Vertrag zwischen den beiden Handlern: dieselbe Accession ⇒ derselbe dedup_key ⇒ die
+        // Meldung wird EINMAL gespeichert, egal welcher Pfad sie zuerst sieht. Bewusst über die
+        // Tochter-CIK gegengeprüft: der Echtzeit-Pfad kennt die Holding (CIK 100517), der Tagesindex
+        // liefert die Zeile auch unter 319687. Über den Permalink wäre das zweierlei.
+        FeedItem ueberTochter = adapter.fetch(source()).stream()
+                .filter(i -> i.url().contains("/data/319687/"))
+                .findFirst()
+                .orElseThrow();
 
-        String permalinkDesEchtzeitpfads =
-                SecEdgarUrls.filingPermalink("0000100517", "0000100517-26-000135");
+        String schluesselDesEchtzeitpfads = SecEdgarUrls.dedupKey("0000100517-26-000135");
 
-        assertThat(ausTagesindex.url()).isEqualTo(permalinkDesEchtzeitpfads);
-        assertThat(DedupKeys.keyFor(ausTagesindex)).isEqualTo(permalinkDesEchtzeitpfads);
+        assertThat(ueberTochter.url())
+                .isNotEqualTo(SecEdgarUrls.filingPermalink("0000100517", "0000100517-26-000135"));
+        assertThat(DedupKeys.keyFor(ueberTochter)).isEqualTo(schluesselDesEchtzeitpfads);
     }
 
     @Test
@@ -99,9 +134,10 @@ class SecEdgarDailyIndexAdapterTest {
         // verlöre den Tag still. Hier gibt es NUR die Datei von gestern.
         ClasspathFeedFetcher nurGestern = new ClasspathFeedFetcher(Map.of(GESTERN, FIXTURE));
 
-        List<FeedItem> items = new SecEdgarDailyIndexAdapter(nurGestern, CLOCK, 3).fetch(source());
+        List<FeedItem> items =
+                new SecEdgarDailyIndexAdapter(nurGestern, KEIN_ERFOLG, CLOCK, 3).fetch(source());
 
-        assertThat(items).hasSize(5);
+        assertThat(items).hasSize(6);
     }
 
     @Test
@@ -112,12 +148,14 @@ class SecEdgarDailyIndexAdapterTest {
         ClasspathFeedFetcher beide =
                 new ClasspathFeedFetcher(Map.of(HEUTE, FIXTURE, GESTERN, FIXTURE));
 
-        List<FeedItem> items = new SecEdgarDailyIndexAdapter(beide, CLOCK, 2).fetch(source());
+        List<FeedItem> items =
+                new SecEdgarDailyIndexAdapter(beide, KEIN_ERFOLG, CLOCK, 2).fetch(source());
 
-        // Roh gemischt: 10 Meldungen, aber nur 5 verschiedene Schlüssel. Die Dubletten sind ERWÜNSCHT
-        // — sie kollabieren eine Schicht höher (IngestPrimarySourcesUsecase kollabiert batch-intern
+        // Roh gemischt: 12 Meldungen (2 Tage x 6 Zeilen), aber nur 5 verschiedene Schlüssel — die
+        // Tages-Überlappung UND die Mit-Anmelder-Dublette fallen zusammen. Beides ist ERWÜNSCHT: das
+        // Entdoppeln passiert eine Schicht höher (IngestPrimarySourcesUsecase kollabiert batch-intern
         // über DedupKeys, der UNIQUE-Index ist das Netz darunter).
-        assertThat(items).hasSize(10);
+        assertThat(items).hasSize(12);
         assertThat(items.stream().map(DedupKeys::keyFor).distinct().toList()).hasSize(5);
     }
 
@@ -125,7 +163,7 @@ class SecEdgarDailyIndexAdapterTest {
     void noDailyFileAtAllYieldsEmptyListInsteadOfThrowing() {
         FeedFetcher tot = url -> Optional.empty();
 
-        assertThat(new SecEdgarDailyIndexAdapter(tot, CLOCK, 3).fetch(source())).isEmpty();
+        assertThat(new SecEdgarDailyIndexAdapter(tot, KEIN_ERFOLG, CLOCK, 3).fetch(source())).isEmpty();
     }
 
     @Test
@@ -133,7 +171,62 @@ class SecEdgarDailyIndexAdapterTest {
         FeedFetcher muell = url -> Optional.of(
                 new FeedResponse("das ist kein Index".getBytes(StandardCharsets.ISO_8859_1)));
 
-        assertThat(new SecEdgarDailyIndexAdapter(muell, CLOCK, 1).fetch(source())).isEmpty();
+        assertThat(new SecEdgarDailyIndexAdapter(muell, ERFOLG_HEUTE, CLOCK, 7).fetch(source())).isEmpty();
+    }
+
+    // --- Adaptives Rückschau-Fenster ---
+
+    @Test
+    void aColdStartWithoutAnyRecordedSuccessReadsTheFullWindow() {
+        // Kein letzter Erfolg -> volle Rückschau (hier maxDays=7): der erste Lauf nach einem Deploy
+        // muss die ganze Spanne aufholen, nicht nur heute.
+        List<URI> geholt = new ArrayList<>();
+        FeedFetcher zaehlend = url -> { geholt.add(url); return Optional.empty(); };
+
+        new SecEdgarDailyIndexAdapter(zaehlend, KEIN_ERFOLG, CLOCK, 7).fetch(source());
+
+        assertThat(geholt).hasSize(7);
+        assertThat(geholt.getFirst().toString()).endsWith("master.20260716.idx"); // heute zuerst
+        assertThat(geholt.getLast().toString()).endsWith("master.20260710.idx"); // 6 Tage zurück
+    }
+
+    @Test
+    void aSuccessEarlierTheSameDayReadsOnlyToday() {
+        List<URI> geholt = new ArrayList<>();
+        FeedFetcher zaehlend = url -> { geholt.add(url); return Optional.empty(); };
+        // 6 Stunden vor FETCHED_AT, aber am selben SEC-Kalendertag.
+        LastSuccessLookup vor6h = id -> Optional.of(FETCHED_AT.minus(Duration.ofHours(6)));
+
+        new SecEdgarDailyIndexAdapter(zaehlend, vor6h, CLOCK, 7).fetch(source());
+
+        assertThat(geholt).extracting(URI::toString).containsExactly(
+                BASE + "2026/QTR3/master.20260716.idx");
+    }
+
+    @Test
+    void aSuccessYesterdayReadsTodayAndYesterday() {
+        List<URI> geholt = new ArrayList<>();
+        FeedFetcher zaehlend = url -> { geholt.add(url); return Optional.empty(); };
+        LastSuccessLookup gestern = id -> Optional.of(FETCHED_AT.minus(Duration.ofDays(1)));
+
+        new SecEdgarDailyIndexAdapter(zaehlend, gestern, CLOCK, 7).fetch(source());
+
+        assertThat(geholt).extracting(URI::toString).containsExactly(
+                BASE + "2026/QTR3/master.20260716.idx",
+                BASE + "2026/QTR3/master.20260715.idx");
+    }
+
+    @Test
+    void aLongOutageIsCappedAtTheMaximumWindow() {
+        List<URI> geholt = new ArrayList<>();
+        FeedFetcher zaehlend = url -> { geholt.add(url); return Optional.empty(); };
+        LastSuccessLookup vor30Tagen = id -> Optional.of(FETCHED_AT.minus(Duration.ofDays(30)));
+
+        new SecEdgarDailyIndexAdapter(zaehlend, vor30Tagen, CLOCK, 7).fetch(source());
+
+        // Gedeckelt: 30 Tage Ausfall, aber nur 7 werden geholt. Ältere sind endgültig verloren
+        // (der Adapter loggt das als WARN).
+        assertThat(geholt).hasSize(7);
     }
 
     private static IngestSource source() {

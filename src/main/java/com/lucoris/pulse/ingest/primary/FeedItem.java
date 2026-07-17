@@ -33,6 +33,12 @@ import java.time.Instant;
  * @param fetchedAt   Zeitpunkt unseres Abrufs (UTC)
  * @param legalClass  {@code A} oder {@code B}, aus der Quelle durchgereicht
  * @param attribution Attributionspflicht der Quelle; {@code null}, wenn keine besteht
+ * @param dedupKey    vom Adapter erklärter kanonischer Schlüssel der Meldung; {@code null} =
+ *                    Normalfall, dann rechnet {@link DedupKeys} ihn aus guid/Link aus. Die Ausnahme
+ *                    ist Quellen vorbehalten, die eine WIRKLICH kanonische, kollisionsfreie Kennung
+ *                    führen — EDGAR ist so ein Fall: dort trägt ein Filing mit Mit-Anmeldern mehrere
+ *                    gültige Permalinks (je CIK einen), und nur die Accession-Nummer identifiziert es
+ *                    eindeutig. Siehe {@link SecEdgarUrls#dedupKey(String)}
  */
 public record FeedItem(
         String sourceId,
@@ -45,4 +51,23 @@ public record FeedItem(
         String language,
         Instant fetchedAt,
         String legalClass,
-        Attribution attribution) {}
+        Attribution attribution,
+        String dedupKey) {
+
+    /** Der Normalfall: kein kanonischer Schlüssel bekannt — {@link DedupKeys} rechnet ihn aus. */
+    public FeedItem(
+            String sourceId,
+            String institution,
+            String title,
+            String url,
+            String guid,
+            Instant publishedAt,
+            String rawSummary,
+            String language,
+            Instant fetchedAt,
+            String legalClass,
+            Attribution attribution) {
+        this(sourceId, institution, title, url, guid, publishedAt, rawSummary, language, fetchedAt,
+                legalClass, attribution, null);
+    }
+}

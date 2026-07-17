@@ -75,13 +75,14 @@ class SecEdgarAdapterTest {
         // Die Item-Codes tragen die Aussage (2.02 = Quartalszahlen, 9.01 = Anlagen).
         assertThat(first.rawSummary()).isEqualTo("2.02,9.01");
 
-        // guid = Accession (nicht URL-förmig) -> DedupKeys fällt auf den konstruierten Permalink
-        // zurück. Genau dieser Permalink muss auch aus dem Tagesindex entstehen, sonst gäbe es die
-        // Meldung zweimal.
         assertThat(first.guid()).isEqualTo("0000320193-26-000011");
         assertThat(first.url()).isEqualTo(
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019326000011/0000320193-26-000011-index.htm");
-        assertThat(DedupKeys.keyFor(first)).isEqualTo(first.url());
+
+        // Der Schlüssel ist die ACCESSION, nicht der Permalink: ein Filing mit Mit-Anmeldern trägt
+        // mehrere gültige Permalinks (je CIK einen) — über sie dedupliziert läge es mehrfach in der
+        // Datenbank. Genau diesen Schlüssel bildet auch der Tagesindex-Pfad.
+        assertThat(DedupKeys.keyFor(first)).isEqualTo("sec-edgar:accession:0000320193-26-000011");
     }
 
     @Test

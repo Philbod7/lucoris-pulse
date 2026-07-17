@@ -429,21 +429,31 @@ Es gibt also **keinen erlaubten globalen Echtzeit-Strom**. Daraus folgen zwei Ha
   unbeobachtete Firmen auffängt. Dafür erst am Abend und **nur mit Datum**: `publishedAt` =
   Tagesbeginn UTC. Bewusste Ungenauigkeit — es ist die einzige Angabe der Quelle; sie zu erfinden
   wäre schlimmer.
-  **Er liest die letzten `dailyIndexDays` (Default 3) Kalendertage, nicht nur „heute".** Das kam aus
-  der Live-Probe: die Datei des laufenden Tages erscheint erst gegen 22:00 ET (davor antwortet die SEC
-  mit 403). Eine „nur heute"-Fassung lieferte also nur zwischen 22:00 ET und Mitternacht überhaupt
-  etwas — ein Neustart in diesem Fenster verlöre den Tag stillschweigend, und ein Sicherheitsnetz mit
-  einem Zwei-Stunden-Fangfenster ist keines. 3 Tage überbrücken zusätzlich ein Wochenende. Die
-  Überlappung ist gratis: der Adapter mischt roh, das Entdoppeln macht ohnehin `DedupKeys`.
+  **Rückschau adaptiv, nicht fix.** Der Adapter liest alle Kalendertage seit dem letzten Erfolg
+  (`primary_source_state.last_success_at` über den Port `LastSuccessLookup`), gedeckelt auf
+  `dailyIndexMaxDays` (Default 7, = `lookback` des Echtzeit-Pfads). Im Normalbetrieb ist das genau
+  ein Tag; nach einem Ausfall wächst das Fenster bis zum Deckel; ein Kaltstart (kein Zustand) liest
+  die volle Spanne. Nötig, weil die Datei des laufenden Tages erst gegen 22:00 ET erscheint (davor
+  403): der Tag des letzten Erfolgs wird immer mitgelesen, sonst entstünde genau dort ein stilles
+  Loch. Gerechnet wird in **Kalendertagen der SEC-Zone**, nicht Stunden — ein Lauf sechs Stunden
+  später, aber jenseits der Datumsgrenze, muss zwei Dateien lesen. Die Erinnerung liegt bewusst in
+  der DB, nicht im Adapter: in-memory wäre nach einem Neustart weg, also genau im Ausfall-Fall, für
+  den die lange Rückschau existiert. Die Überlappung ist gratis: der Adapter mischt roh, das
+  Entdoppeln macht `DedupKeys`. `poll` daher 6 h — der Index ist End-of-Day.
 
-**Beide Handler erzeugen denselben `dedup_key`** — das ist der Vertrag zwischen ihnen und der Grund,
-warum die Doppel-Abdeckung keine Doppel-Zeilen erzeugt: `SecEdgarUrls.filingPermalink` konstruiert
-aus CIK (ohne führende Nullen) + Accession denselben Link
-(`/Archives/edgar/data/{cik}/{accOhneStriche}/{acc}-index.htm`), `guid` = Accession (nicht
-URL-förmig) ⇒ `DedupKeys` fällt auf ebendiesen Permalink zurück. Wer zuerst liefert, gewinnt; das
-ist fast immer der Echtzeit-Pfad mit dem exakten `acceptanceDateTime`. Der Permalink wird
-**konstruiert, nicht übernommen**: die Links, die EDGAR selbst mitgibt, zeigen firmenweit auf
-`getcompany` und würden alle Filings einer Firma zu einer Meldung kollabieren.
+**Beide Handler erzeugen denselben `dedup_key` — über die Accession, NICHT über den Permalink.** Das
+ist der Vertrag zwischen ihnen, und die erste Fassung hatte ihn falsch: sie deduplizierte über den
+konstruierten Permalink. Das bricht bei **Mit-Anmeldern**. Ein Filing ist unter JEDER beteiligten
+CIK erreichbar — `0000100517-26-000135` etwa unter `100517` (United Airlines Holdings) und `319687`
+(United Airlines, Inc.); der Tagesindex führt es dann zweimal (je CIK eine Zeile), die submissions-API
+bei beiden CIKs, und beide Permalinks liefern dasselbe Dokument (live: HTTP 200). Über den Permalink
+dedupliziert läge das Filing doppelt in der DB (am 2026-07-15: 2 von 173 8-K, über alle Formulartypen
+788 von 2392). **Die Accession ist die Identität, der Permalink nur Darstellung.** Der Adapter erklärt
+sie deshalb selbst als `FeedItem.dedupKey` (`SecEdgarUrls.dedupKey` → `sec-edgar:accession:<nr>`,
+konstantes Präfix, damit beide Quellen denselben Schlüssel bilden); `DedupKeys.keyFor` gibt einem
+erklärten Schlüssel Vorrang vor der guid/Link-Regel. Der Permalink bleibt als Anzeige-Deep-Link (wer
+zuerst liefert, prägt die gespeicherte URL — unschädlich, da nicht Schlüssel). Er wird weiterhin
+**konstruiert, nicht übernommen**: EDGARs eigene Links zeigen firmenweit auf `getcompany`.
 
 - **`acceptanceDateTime`, nicht `filingDate`**: nur ersteres ist ein Zeitpunkt. `filings.recent` ist
   spaltenweise abgelegt (parallele Arrays); stimmen die Längen nicht überein, wird die Firma

@@ -16,6 +16,15 @@ import java.util.Set;
  * einmal gespeichert werden. Opake guids ({@code "12345"}, {@code "tag:..."}) werden nie roh
  * verwendet — zwei Herausgeber könnten zufällig dieselbe ID vergeben; der Link dedupliziert dann.
  *
+ * <p><b>Ausnahme: {@link FeedItem#dedupKey()}.</b> Diese Regel setzt voraus, dass der Link die
+ * Meldung identifiziert. Das gilt nicht überall: bei EDGAR trägt ein Filing mit Mit-Anmeldern
+ * mehrere gleichermaßen gültige Permalinks (je beteiligter CIK einen, alle liefern dasselbe
+ * Dokument) — der Link wäre dort kein Schlüssel, sondern eine Darstellungsform. Ein Adapter, der die
+ * kanonische Kennung seiner Quelle KENNT (dort: die Accession-Nummer), erklärt sie deshalb selbst;
+ * sie hat dann Vorrang. Das ist die Ausnahme, nicht der Regelweg: erlaubt nur, wo die Quelle eine
+ * wirklich eindeutige, kollisionsfreie ID führt, und der Schlüssel muss über alle Quellen hinweg
+ * gleich gebildet werden (sonst dedupliziert er nicht mehr quellenübergreifend).
+ *
  * <p>Die Normalisierung entfernt nur, was nachweislich nicht zur Identität der Ressource gehört
  * (Tracking-Parameter, Fragment, Groß-/Kleinschreibung von Scheme/Host, Default-Ports). Pfad und
  * übrige Query-Parameter bleiben unangetastet — deren Semantik bestimmt der Server.
@@ -34,8 +43,15 @@ public final class DedupKeys {
 
     private DedupKeys() {}
 
-    /** Der Deduplizierungsschlüssel der Meldung: URL-förmige guid vor Link, beides normalisiert. */
+    /**
+     * Der Deduplizierungsschlüssel der Meldung: ein vom Adapter erklärter kanonischer Schlüssel,
+     * sonst URL-förmige guid vor Link, beides normalisiert.
+     */
     public static String keyFor(FeedItem item) {
+        String erklaert = item.dedupKey();
+        if (erklaert != null && !erklaert.isBlank()) {
+            return erklaert.trim();
+        }
         String guid = item.guid();
         if (isHttpUrl(guid)) {
             return normalizeUrl(guid);
