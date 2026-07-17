@@ -190,9 +190,20 @@ public final class CachingRobotsGate implements RobotsGate {
             return SitePolicy.unreachable(problem);
         }
 
-        RobotsRules rules = robots.absent()
-                ? RobotsRules.unrestricted() // 404: es gibt keine robots.txt -> keine Einschränkung
-                : RobotsRules.parse(robots.body());
+        // Whitelist statt Restmenge: NUR ein gelesenes Dokument (200) wird geparst, nur ein sauberes
+        // „gibt es nicht" (404/410) heißt „keine Einschränkung". Alles andere — 400, 204, ein nicht
+        // gefolgter Redirect — ist keine robots.txt; sie zu parsen ergäbe leere Regeln und damit
+        // einen Freibrief. Genau der Weg, auf dem ein Fehlerkörper zur Erlaubnis würde.
+        RobotsRules rules;
+        if (robots.absent()) {
+            rules = RobotsRules.unrestricted();
+        } else if (robots.ok()) {
+            rules = RobotsRules.parse(robots.body());
+        } else {
+            log.warn("robots.txt {} mit unerwartetem HTTP {} beantwortet — kein parsbares Dokument,"
+                    + " Quelle wird fail-closed gesperrt", robotsUrl, robots.status());
+            return SitePolicy.unreachable("unerwarteter HTTP " + robots.status());
+        }
 
         // tdmrep.json ist ein ZUSÄTZLICHER Kanal, dessen Fehlen der Normalfall ist. Nur eine
         // gelesene Datei kann einen Vorbehalt erklären; ein Fehler hier hebt die robots-Auskunft

@@ -395,3 +395,85 @@ abschaltbar, und in Tests darf NIE von selbst Netz angefasst werden.
   Erfolg/Fehler nach `primary_source_state` (`consecutive_failures`, `last_error`) — Einmal-Lauf
   und Poller teilen dieselbe Buchführung; eine tote Quelle stoppt den Tick nie und ist in der DB
   sichtbar statt nur im Log.
+
+
+## 27. EDGAR-Anbindung: submissions-API (Echtzeit, Watchlist) + Tagesindex (Voll-Abgleich)
+Die im Manifest reservierte Quelle `sec-edgar` wird als erste API-Primärquelle gebaut: neue
+**8-K/8-K-A** (US-Ad-hoc, höchstes Marktsignal) als `FeedItem`, ohne Schema-Änderung, über das
+bestehende Muster (Adapter-POJO → Dispatcher → RobotsGate → `primary_feed_item`).
+
+**Der erste Anlauf war unzulässig — und das Gate hat es gefangen.** Gebaut war der globale
+Echtzeit-Strom `browse-edgar?action=getcurrent&output=atom`; die Live-Probe wurde verweigert. Zu
+Recht: `sec.gov/robots.txt` führt `Disallow: /cgi-bin`. Die SEC sperrt ihre alten CGI-Skripte und
+erlaubt mit `Allow: /Archives/edgar/data` ausdrücklich die Daten — nicht die Quelle war blockiert,
+nur die URL. `enabled:false` wäre der falsche Fix gewesen. Der Feed hätte funktioniert und wäre
+trotzdem unzulässig gewesen; genau dafür existiert das Gate.
+
+**Endpunktwahl (alle Kandidaten am 2026-07-16 live geprüft, nicht angenommen):**
+
+| Endpunkt | robots | Echtzeit | Watchlist | Zeitstempel |
+|---|---|---|---|---|
+| `/cgi-bin` getcurrent | **Disallow** | ja | nein | exakt |
+| `efts.sec.gov` (Volltextsuche) | robots.txt **403** → fail-closed | ~min | nein | Datum |
+| `/Archives/edgar/daily-index` | keine Regel trifft → erlaubt | **End-of-Day ~22:00 ET** | nein | **nur Datum** |
+| `data.sec.gov/submissions` | robots.txt **404** = frei (RFC 9309) | **ja (<1s)** | **ja** | **exakt** |
+
+Es gibt also **keinen erlaubten globalen Echtzeit-Strom**. Daraus folgen zwei Handler statt einem:
+- **`sec_edgar` (Echtzeit)** über `data.sec.gov/submissions/CIK##########.json`. Die API ist per
+  Firma adressiert ⇒ **kuratierte Watchlist** `sec-edgar-ciks.json` (90 CIKs, aus der maßgeblichen
+  SEC-Quelle `files/company_tickers.json` übernommen, nicht getippt). Bewusst eine Ressourcendatei
+  statt einer Tabelle: `company` trägt `ticker`/`isin`, aber **keine `cik`** — ein Universum gäbe es
+  nur mit Migration + Sync-Job, und der Ingest soll marktrelevante Emittenten beobachten, nicht jede
+  Briefkastenfirma. Erweitern = Eintrag ergänzen, kein Code.
+- **`sec_edgar_daily` (Voll-Abgleich)** über den Tagesindex — das Netz unter der Watchlist, das auch
+  unbeobachtete Firmen auffängt. Dafür erst am Abend und **nur mit Datum**: `publishedAt` =
+  Tagesbeginn UTC. Bewusste Ungenauigkeit — es ist die einzige Angabe der Quelle; sie zu erfinden
+  wäre schlimmer.
+  **Er liest die letzten `dailyIndexDays` (Default 3) Kalendertage, nicht nur „heute".** Das kam aus
+  der Live-Probe: die Datei des laufenden Tages erscheint erst gegen 22:00 ET (davor antwortet die SEC
+  mit 403). Eine „nur heute"-Fassung lieferte also nur zwischen 22:00 ET und Mitternacht überhaupt
+  etwas — ein Neustart in diesem Fenster verlöre den Tag stillschweigend, und ein Sicherheitsnetz mit
+  einem Zwei-Stunden-Fangfenster ist keines. 3 Tage überbrücken zusätzlich ein Wochenende. Die
+  Überlappung ist gratis: der Adapter mischt roh, das Entdoppeln macht ohnehin `DedupKeys`.
+
+**Beide Handler erzeugen denselben `dedup_key`** — das ist der Vertrag zwischen ihnen und der Grund,
+warum die Doppel-Abdeckung keine Doppel-Zeilen erzeugt: `SecEdgarUrls.filingPermalink` konstruiert
+aus CIK (ohne führende Nullen) + Accession denselben Link
+(`/Archives/edgar/data/{cik}/{accOhneStriche}/{acc}-index.htm`), `guid` = Accession (nicht
+URL-förmig) ⇒ `DedupKeys` fällt auf ebendiesen Permalink zurück. Wer zuerst liefert, gewinnt; das
+ist fast immer der Echtzeit-Pfad mit dem exakten `acceptanceDateTime`. Der Permalink wird
+**konstruiert, nicht übernommen**: die Links, die EDGAR selbst mitgibt, zeigen firmenweit auf
+`getcompany` und würden alle Filings einer Firma zu einer Meldung kollabieren.
+
+- **`acceptanceDateTime`, nicht `filingDate`**: nur ersteres ist ein Zeitpunkt. `filings.recent` ist
+  spaltenweise abgelegt (parallele Arrays); stimmen die Längen nicht überein, wird die Firma
+  verworfen statt Titel und Zeitstempel verschiedener Einreichungen zu vermischen.
+- **Lookback-Fenster (7 Tage)**: `recent` führt bis ~1000 Einträge (rund ein Jahr). Ohne Fenster
+  liefe die ganze Historie jeder Firma bei jedem Tick durch die Dedup-Prüfung.
+- **Pacing (120 ms ≈ 8 Req/s)**: die SEC lässt 10 Req/s zu und drosselt darüber mit 403. Abstand
+  halten statt die Grenze ausreizen. Sweep über 90 CIKs ≈ 11 s bei 120 s Poll-Intervall.
+- **Grenze, bewusst in Kauf genommen:** `access.url` im Manifest ist das **Präfix**, das der Gate
+  prüft; die Adapter fächern darunter auf (CIK-Dateien bzw. Tagesdatei). Beide Präfixe tragen heute
+  keine tieferen robots-Regeln (geprüft) — eine später ergänzte tiefere Regel sähe der Gate nicht.
+  Der Gate je Einzel-URL zu befragen würde die Dekorator-Architektur umkehren; das ist es hier nicht wert.
+- **KEIN `express_invitation`** (obwohl naheliegend): eine Einladung kann laut `CachingRobotsGate`
+  nur ein *generisches* `'*'`-Disallow bei `access.type: rss` aufwiegen. Beide Endpunkte sind schlicht
+  erlaubt — es gibt nichts zu heilen. **Keine UA-Änderung**: der bestehende UA mit Kontakt-URL liefert
+  von `data.sec.gov` nachweislich HTTP 200; eine Kontakt-E-Mail anzuhängen wäre eine Änderung an allen
+  Quellen ohne belegten Nutzen.
+- **OFFEN:** weitere Formulartypen (10-K/10-Q/Form 4/13F/13D/13G); Volumen-/Partitionierungsfrage für
+  `primary_feed_item` bei einem Massen-Handler (`docs/data-model.md`).
+
+## 28. robots.txt: nur 200 wird geparst — 429 und unerwartete Codes sperren fail-closed
+Beim EDGAR-Einbau aufgefallen: `PolicyFetcher.Response.unknown()` kannte **429 nicht**. Ein
+gedrosseltes robots.txt fiel damit in den `parse()`-Zweig, dessen Fehlerkörper keine
+`User-agent:`-Gruppen enthält → leere Regeln → „keine Regel trifft" → **erlaubt**. Ein Fail-open im
+Sicherheitsnetz, ausgerechnet bei Hosts mit hartem Ratenlimit.
+- **429 zählt zu `unknown()`** (RFC 9309 § 2.3.1.4 wertet es als „unavailable" = vollständiges
+  Verbot): wer uns drosselt, hat uns die Hausordnung nicht gezeigt.
+- **Whitelist statt Restmenge** in `CachingRobotsGate.load()`: NUR ein gelesenes Dokument (200) wird
+  geparst, nur ein sauberes „gibt es nicht" (404/410) heißt „keine Einschränkung". Alles andere —
+  400, 204, ein nicht gefolgter Redirect — ist keine robots.txt und sperrt fail-closed, statt aus
+  einem Fehlerkörper einen Freibrief zu machen.
+- Die 404-Regel bleibt unangetastet: sie ist RFC-konform und trägt `data.sec.gov`, das gar keine
+  robots.txt hat. Nebenbefund: die SEC drosselt real mit **403**, das griff schon vorher.

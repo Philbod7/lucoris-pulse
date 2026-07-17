@@ -147,10 +147,27 @@ class CachingRobotsGateTest {
     // --- Fail-closed ---
 
     @ParameterizedTest(name = "robots.txt HTTP {0} -> gesperrt")
-    @ValueSource(ints = {500, 502, 503, 401, 403, PolicyFetcher.Response.NETWORK_ERROR})
+    @ValueSource(ints = {500, 502, 503, 401, 403, 429, PolicyFetcher.Response.NETWORK_ERROR})
     void deniesWhenPermissionCannotBeEstablished(int status) {
         // Fail-closed: kein Nachweis der Erlaubnis = kein Abruf. Die Beweislast liegt bei uns.
+        // 429 gehört dazu (RFC 9309 § 2.3.1.4): wer uns drosselt, hat uns die Hausordnung nicht
+        // gezeigt — gerade bei Hosts mit hartem Ratenlimit (SEC EDGAR: 10 Req/s).
         fetcher.respond(ROBOTS, status, "");
+        fetcher.respond(TDMREP, 404, "");
+
+        RobotsGate.Decision decision = gate().check(intent(FEED));
+
+        assertThat(decision.allowed()).isFalse();
+        assertThat(decision.reason()).contains("fail-closed");
+    }
+
+    @ParameterizedTest(name = "robots.txt HTTP {0} (unerwartet) -> gesperrt, NICHT geparst")
+    @ValueSource(ints = {400, 204, 302})
+    void deniesOnUnexpectedStatusInsteadOfParsingTheErrorBody(int status) {
+        // Weder gelesen (200) noch sicher abwesend (404/410): der Körper ist dann KEINE robots.txt.
+        // Ihn zu parsen ergäbe leere Regeln — also „keine Regel trifft" = erlaubt. Ein Fehlerkörper
+        // darf nie zum Freibrief werden.
+        fetcher.respond(ROBOTS, status, "<html>Bad Request</html>");
         fetcher.respond(TDMREP, 404, "");
 
         RobotsGate.Decision decision = gate().check(intent(FEED));

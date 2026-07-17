@@ -43,10 +43,18 @@
     {
       "id": "sec-edgar", "institution": "US SEC (EDGAR)", "category": "company_primary", "region": "US", "tier": 1,
       "originates": ["us_ad_hoc_8k","annual_report_10k","quarterly_report_10q","insider_trade_form4","holdings_13f_13d_13g"],
-      "access": { "type": "api", "url": "https://data.sec.gov/", "format": "json" },
+      "access": { "type": "api", "url": "https://data.sec.gov/submissions/", "format": "json" },
       "handler": "sec_edgar", "poll": { "mode": "interval", "seconds": 120 },
       "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
-      "notes": "NAECHSTE NEUE QUELLE (Step 2). Gemeinfrei (§ 105). Fair Access: max 10 Req/s pro IP, User-Agent mit Kontakt PFLICHT (403 sonst), CIK auf 10 Stellen zero-padden. 8-K-Strom = US-Ad-hoc. Beim Einbau fixieren: current-events Atom-Feed, submissions-Endpoint, Volltextsuche (efts.sec.gov). Filing-Permalink ueber Accession Number."
+      "notes": "ECHTZEIT-PFAD, gefiltert auf 8-K/8-K-A (US-Ad-hoc). Gemeinfrei (§ 105, US-Bundeswerk). ENDPUNKT-HISTORIE: der naheliegende globale Strom /cgi-bin/browse-edgar?action=getcurrent ist UNZULAESSIG — sec.gov/robots.txt fuehrt 'Disallow: /cgi-bin' (die SEC sperrt ihre alten CGI-Skripte und erlaubt mit 'Allow: /Archives/edgar/data' ausdruecklich die Daten). Das RobotsGate hat den ersten scharfen Lauf zu Recht verweigert. Die Volltextsuche efts.sec.gov beantwortet ihre robots.txt mit 403 -> fail-closed ebenfalls gesperrt. Bleibt die submissions-API: robots.txt 404 = keine Einschraenkung (RFC 9309), am 2026-07-16 mit unserem UA als HTTP 200 angetippt. Sie ist PER FIRMA adressiert -> kuratierte Watchlist in sec-edgar-ciks.json (90 CIKs); was ausserhalb liegt, faengt sec-edgar-daily-index auf. WICHTIG: access.url ist das PRAEFIX, das der Gate prueft; der Adapter faechert darunter auf (CIK##########.json). Fair Access: max 10 Req/s pro IP (SEC drosselt mit 403) -> pacing 120ms. Der Adapter nimmt acceptanceDateTime (exakt), NICHT filingDate, und konstruiert den Filing-Permalink aus CIK + Accession; guid = Accession -> Dedup pro Einreichung, deckungsgleich mit dem Tagesindex. OFFEN: weitere Formulartypen (10-K/10-Q/Form4/13F), Volumen-/Partitionierungsfrage (data-model.md). enabled bleibt false bis zur gruenen Live-Probe (PrimarySourceProbeIT -Dprimary.source=sec-edgar); confidence dann auf verified."
+    },
+    {
+      "id": "sec-edgar-daily-index", "institution": "US SEC (EDGAR)", "category": "company_primary", "region": "US", "tier": 1,
+      "originates": ["us_ad_hoc_8k"],
+      "access": { "type": "api", "url": "https://www.sec.gov/Archives/edgar/daily-index/", "format": "idx" },
+      "handler": "sec_edgar_daily", "poll": { "mode": "interval", "seconds": 3600 },
+      "enabled": false, "confidence": "verify_endpoint", "legal_class": "A",
+      "notes": "VOLL-ABGLEICH unter dem Echtzeit-Pfad: der Tagesindex fuehrt ALLE Einreichungen eines Tages, auch von Firmen ausserhalb der sec-edgar-Watchlist. Preis: die Datei master.{yyyyMMdd}.idx erscheint erst am Abend (~22:00 ET, live geprueft an den last-modified der Verzeichnisliste) und fuehrt NUR das Datum, keine Uhrzeit -> publishedAt = Tagesbeginn UTC (bewusste Ungenauigkeit, siehe ADR 27). Deshalb poll 3600s — haeufiger waere sinnlos. ROBOTS: keine Regel der sec.gov-robots.txt trifft /Archives/edgar/daily-index (die '*'-Gruppe sperrt nur /cgi-bin, /bin, /Archives/{bin,etc,usr} und /Archives/edgar/vprr/*) -> erlaubt; am 2026-07-16 mit unserem UA als HTTP 200 angetippt (pipe-getrennt, 169 8-K-Zeilen). access.url ist das PRAEFIX, das der Gate prueft; der Adapter haengt {jahr}/QTR{q}/master.{yyyyMMdd}.idx an. Dieselbe Accession ergibt denselben Permalink wie der Echtzeit-Pfad -> derselbe dedup_key, kein Doppel-Insert. enabled bleibt false bis zur gruenen Live-Probe; tagsueber ist die Datei des laufenden Tages erwartungsgemaess leer/404."
     },
     {
       "id": "fed-speeches", "institution": "US Federal Reserve (Reden)", "category": "central_bank", "region": "US", "tier": 1,
@@ -262,7 +270,8 @@
       "confidence": "verify_endpoint",
       "legal_class": "B",
       "notes": "Wire-Dienst mit ÖFFENTLICHER RSS-Liste (nach Börse/Land/Kategorie filterbar) und ausdrücklicher Journalisten-Einladung zum Feed-Download; Newsfeed 'real-time and royalty-free'. Offizieller Pflichtmeldungs-Kanal für Nasdaq Nordics/Baltics, zugelassener Verbreiter regulierter Information in FR. Deckt NICHT deutsche EQS-Emittenten — DE-Brücke (Emittenten-IR, BaFin, Bundesanzeiger-Check) bleibt bis ESAP. Onboarding: aus /rss/list gezielt kuratierte Teilfeeds wählen (z.B. Nordic Regulatory + gewünschte Kategorien) statt Gesamtstrom; robots inkl. KI-/Bot-UA-Gruppen und TDM-Kanäle prüfen — eine spezifische Bot-Sperre würde gewinnen. Einladungs-Evidenz (falls generisches Disallow auftaucht) dokumentierbar unter https://www.globenewswire.com/newswire-press-release-content ('Journalists & Bloggers: ... download one of our RSS news release feeds'); access.url beim Verdrahten durch die konkreten Teilfeed-XMLs ersetzen (ein Registry-Eintrag je gewähltem Teilfeed, Muster bmf-presse/bmf-finanzmarkt)."
-    },    {
+    },
+    {
       "id": "globenewswire-company",
       "institution": "GlobeNewswire (Nasdaq)",
       "category": "company_primary",

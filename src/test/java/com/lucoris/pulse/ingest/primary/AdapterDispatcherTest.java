@@ -27,14 +27,14 @@ class AdapterDispatcherTest {
 
     @Test
     void unknownHandlerFailsLoudlyNamingSourceAndHandler() {
-        // sec_edgar ist im Manifest bereits als nächste Quelle vorgemerkt, aber noch nicht gebaut.
-        // Stilles Überspringen wäre ein unsichtbares Datenloch — also: laut scheitern.
-        IngestSource edgar = source("sec-edgar", "sec_edgar");
+        // html_index ist im Manifest bereits vorgemerkt, aber noch nicht gebaut (sec_edgar ist es
+        // inzwischen). Stilles Überspringen wäre ein unsichtbares Datenloch — also: laut scheitern.
+        IngestSource landing = source("us-state", "html_index");
 
         assertThatExceptionOfType(UnsupportedOperationException.class)
-                .isThrownBy(() -> dispatcher.fetch(edgar))
-                .withMessageContaining("sec_edgar")
-                .withMessageContaining("sec-edgar")
+                .isThrownBy(() -> dispatcher.fetch(landing))
+                .withMessageContaining("html_index")
+                .withMessageContaining("us-state")
                 .withMessageContaining("noch nicht implementiert")
                 .withMessageContaining("generic_rss"); // was es stattdessen gibt
 

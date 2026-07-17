@@ -1,0 +1,456 @@
+{
+  "version": "2026-07-16",
+  "purpose": "Kuratierte CIK-Watchlist fuer den sec_edgar-Handler (data.sec.gov/submissions). Die submissions-API ist PER FIRMA adressiert und kennt keinen globalen Strom - diese Liste sagt, wessen Einreichungen der Echtzeit-Pfad beobachtet. Filings ausserhalb dieser Liste faengt der Tagesindex-Handler sec_edgar_daily (End-of-Day) auf. CIKs sind 10-stellig zero-gepaddet (so verlangt es der Endpunkt CIK##########.json) und am 2026-07-16 aus der maszgeblichen SEC-Quelle https://www.sec.gov/files/company_tickers.json uebernommen - nicht von Hand getippt. Erweitern: Eintrag ergaenzen, kein Code noetig.",
+  "ciks": [
+    {
+      "cik": "0000320193",
+      "name": "Apple Inc.",
+      "ticker": "AAPL"
+    },
+    {
+      "cik": "0001551152",
+      "name": "AbbVie Inc.",
+      "ticker": "ABBV"
+    },
+    {
+      "cik": "0000001800",
+      "name": "ABBOTT LABORATORIES",
+      "ticker": "ABT"
+    },
+    {
+      "cik": "0001467373",
+      "name": "Accenture plc",
+      "ticker": "ACN"
+    },
+    {
+      "cik": "0000796343",
+      "name": "ADOBE INC.",
+      "ticker": "ADBE"
+    },
+    {
+      "cik": "0000006281",
+      "name": "ANALOG DEVICES INC",
+      "ticker": "ADI"
+    },
+    {
+      "cik": "0000008670",
+      "name": "AUTOMATIC DATA PROCESSING INC",
+      "ticker": "ADP"
+    },
+    {
+      "cik": "0000002488",
+      "name": "ADVANCED MICRO DEVICES INC",
+      "ticker": "AMD"
+    },
+    {
+      "cik": "0000318154",
+      "name": "AMGEN INC",
+      "ticker": "AMGN"
+    },
+    {
+      "cik": "0001018724",
+      "name": "AMAZON COM INC",
+      "ticker": "AMZN"
+    },
+    {
+      "cik": "0001730168",
+      "name": "Broadcom Inc.",
+      "ticker": "AVGO"
+    },
+    {
+      "cik": "0000012927",
+      "name": "BOEING CO",
+      "ticker": "BA"
+    },
+    {
+      "cik": "0000070858",
+      "name": "BANK OF AMERICA CORP /DE/",
+      "ticker": "BAC"
+    },
+    {
+      "cik": "0001075531",
+      "name": "Booking Holdings Inc.",
+      "ticker": "BKNG"
+    },
+    {
+      "cik": "0002012383",
+      "name": "BlackRock, Inc.",
+      "ticker": "BLK"
+    },
+    {
+      "cik": "0001067983",
+      "name": "BERKSHIRE HATHAWAY INC",
+      "ticker": "BRK-B"
+    },
+    {
+      "cik": "0000831001",
+      "name": "CITIGROUP INC",
+      "ticker": "C"
+    },
+    {
+      "cik": "0000018230",
+      "name": "CATERPILLAR INC",
+      "ticker": "CAT"
+    },
+    {
+      "cik": "0000813672",
+      "name": "CADENCE DESIGN SYSTEMS INC",
+      "ticker": "CDNS"
+    },
+    {
+      "cik": "0001166691",
+      "name": "COMCAST CORP",
+      "ticker": "CMCSA"
+    },
+    {
+      "cik": "0001679788",
+      "name": "Coinbase Global, Inc.",
+      "ticker": "COIN"
+    },
+    {
+      "cik": "0000909832",
+      "name": "COSTCO WHOLESALE CORP /NEW",
+      "ticker": "COST"
+    },
+    {
+      "cik": "0001108524",
+      "name": "Salesforce, Inc.",
+      "ticker": "CRM"
+    },
+    {
+      "cik": "0001535527",
+      "name": "CrowdStrike Holdings, Inc.",
+      "ticker": "CRWD"
+    },
+    {
+      "cik": "0000858877",
+      "name": "CISCO SYSTEMS, INC.",
+      "ticker": "CSCO"
+    },
+    {
+      "cik": "0000093410",
+      "name": "CHEVRON CORP",
+      "ticker": "CVX"
+    },
+    {
+      "cik": "0000315189",
+      "name": "DEERE & CO",
+      "ticker": "DE"
+    },
+    {
+      "cik": "0000313616",
+      "name": "DANAHER CORP /DE/",
+      "ticker": "DHR"
+    },
+    {
+      "cik": "0001744489",
+      "name": "Walt Disney Co",
+      "ticker": "DIS"
+    },
+    {
+      "cik": "0000037996",
+      "name": "FORD MOTOR CO",
+      "ticker": "F"
+    },
+    {
+      "cik": "0000040545",
+      "name": "GENERAL ELECTRIC CO",
+      "ticker": "GE"
+    },
+    {
+      "cik": "0000882095",
+      "name": "GILEAD SCIENCES, INC.",
+      "ticker": "GILD"
+    },
+    {
+      "cik": "0001467858",
+      "name": "General Motors Co",
+      "ticker": "GM"
+    },
+    {
+      "cik": "0001652044",
+      "name": "Alphabet Inc.",
+      "ticker": "GOOGL"
+    },
+    {
+      "cik": "0000886982",
+      "name": "GOLDMAN SACHS GROUP INC",
+      "ticker": "GS"
+    },
+    {
+      "cik": "0000354950",
+      "name": "HOME DEPOT, INC.",
+      "ticker": "HD"
+    },
+    {
+      "cik": "0000773840",
+      "name": "HONEYWELL INTERNATIONAL INC",
+      "ticker": "HON"
+    },
+    {
+      "cik": "0000051143",
+      "name": "INTERNATIONAL BUSINESS MACHINES CORP",
+      "ticker": "IBM"
+    },
+    {
+      "cik": "0000050863",
+      "name": "INTEL CORP",
+      "ticker": "INTC"
+    },
+    {
+      "cik": "0000896878",
+      "name": "INTUIT INC.",
+      "ticker": "INTU"
+    },
+    {
+      "cik": "0001035267",
+      "name": "INTUITIVE SURGICAL INC",
+      "ticker": "ISRG"
+    },
+    {
+      "cik": "0000200406",
+      "name": "JOHNSON & JOHNSON",
+      "ticker": "JNJ"
+    },
+    {
+      "cik": "0000019617",
+      "name": "JPMORGAN CHASE & CO",
+      "ticker": "JPM"
+    },
+    {
+      "cik": "0000319201",
+      "name": "KLA CORP",
+      "ticker": "KLAC"
+    },
+    {
+      "cik": "0000021344",
+      "name": "COCA COLA CO",
+      "ticker": "KO"
+    },
+    {
+      "cik": "0000059478",
+      "name": "ELI LILLY & Co",
+      "ticker": "LLY"
+    },
+    {
+      "cik": "0000936468",
+      "name": "LOCKHEED MARTIN CORP",
+      "ticker": "LMT"
+    },
+    {
+      "cik": "0000060667",
+      "name": "LOWES COMPANIES INC",
+      "ticker": "LOW"
+    },
+    {
+      "cik": "0000707549",
+      "name": "LAM RESEARCH CORP",
+      "ticker": "LRCX"
+    },
+    {
+      "cik": "0001141391",
+      "name": "Mastercard Inc",
+      "ticker": "MA"
+    },
+    {
+      "cik": "0000063908",
+      "name": "MCDONALDS CORP",
+      "ticker": "MCD"
+    },
+    {
+      "cik": "0001613103",
+      "name": "Medtronic plc",
+      "ticker": "MDT"
+    },
+    {
+      "cik": "0001326801",
+      "name": "Meta Platforms, Inc.",
+      "ticker": "META"
+    },
+    {
+      "cik": "0000066740",
+      "name": "3M CO",
+      "ticker": "MMM"
+    },
+    {
+      "cik": "0000310158",
+      "name": "Merck & Co., Inc.",
+      "ticker": "MRK"
+    },
+    {
+      "cik": "0001835632",
+      "name": "Marvell Technology, Inc.",
+      "ticker": "MRVL"
+    },
+    {
+      "cik": "0000895421",
+      "name": "MORGAN STANLEY",
+      "ticker": "MS"
+    },
+    {
+      "cik": "0000789019",
+      "name": "MICROSOFT CORP",
+      "ticker": "MSFT"
+    },
+    {
+      "cik": "0000723125",
+      "name": "MICRON TECHNOLOGY INC",
+      "ticker": "MU"
+    },
+    {
+      "cik": "0001065280",
+      "name": "NETFLIX INC",
+      "ticker": "NFLX"
+    },
+    {
+      "cik": "0001373715",
+      "name": "ServiceNow, Inc.",
+      "ticker": "NOW"
+    },
+    {
+      "cik": "0001045810",
+      "name": "NVIDIA CORP",
+      "ticker": "NVDA"
+    },
+    {
+      "cik": "0001341439",
+      "name": "ORACLE CORP",
+      "ticker": "ORCL"
+    },
+    {
+      "cik": "0001327567",
+      "name": "Palo Alto Networks Inc",
+      "ticker": "PANW"
+    },
+    {
+      "cik": "0000077476",
+      "name": "PEPSICO INC",
+      "ticker": "PEP"
+    },
+    {
+      "cik": "0000078003",
+      "name": "PFIZER INC",
+      "ticker": "PFE"
+    },
+    {
+      "cik": "0000080424",
+      "name": "PROCTER & GAMBLE Co",
+      "ticker": "PG"
+    },
+    {
+      "cik": "0001321655",
+      "name": "Palantir Technologies Inc.",
+      "ticker": "PLTR"
+    },
+    {
+      "cik": "0001413329",
+      "name": "Philip Morris International Inc.",
+      "ticker": "PM"
+    },
+    {
+      "cik": "0001633917",
+      "name": "PayPal Holdings, Inc.",
+      "ticker": "PYPL"
+    },
+    {
+      "cik": "0000804328",
+      "name": "QUALCOMM INC/DE",
+      "ticker": "QCOM"
+    },
+    {
+      "cik": "0000872589",
+      "name": "REGENERON PHARMACEUTICALS, INC.",
+      "ticker": "REGN"
+    },
+    {
+      "cik": "0000101829",
+      "name": "RTX Corp",
+      "ticker": "RTX"
+    },
+    {
+      "cik": "0000829224",
+      "name": "STARBUCKS CORP",
+      "ticker": "SBUX"
+    },
+    {
+      "cik": "0000883241",
+      "name": "SYNOPSYS INC",
+      "ticker": "SNPS"
+    },
+    {
+      "cik": "0000064040",
+      "name": "S&P Global Inc.",
+      "ticker": "SPGI"
+    },
+    {
+      "cik": "0000310764",
+      "name": "STRYKER CORP",
+      "ticker": "SYK"
+    },
+    {
+      "cik": "0000732717",
+      "name": "AT&T INC.",
+      "ticker": "T"
+    },
+    {
+      "cik": "0000097745",
+      "name": "THERMO FISHER SCIENTIFIC INC.",
+      "ticker": "TMO"
+    },
+    {
+      "cik": "0001318605",
+      "name": "Tesla, Inc.",
+      "ticker": "TSLA"
+    },
+    {
+      "cik": "0000097476",
+      "name": "TEXAS INSTRUMENTS INC",
+      "ticker": "TXN"
+    },
+    {
+      "cik": "0001543151",
+      "name": "Uber Technologies, Inc",
+      "ticker": "UBER"
+    },
+    {
+      "cik": "0000731766",
+      "name": "UNITEDHEALTH GROUP INC",
+      "ticker": "UNH"
+    },
+    {
+      "cik": "0000100885",
+      "name": "UNION PACIFIC CORP",
+      "ticker": "UNP"
+    },
+    {
+      "cik": "0001403161",
+      "name": "VISA INC.",
+      "ticker": "V"
+    },
+    {
+      "cik": "0000875320",
+      "name": "VERTEX PHARMACEUTICALS INC / MA",
+      "ticker": "VRTX"
+    },
+    {
+      "cik": "0000732712",
+      "name": "VERIZON COMMUNICATIONS INC",
+      "ticker": "VZ"
+    },
+    {
+      "cik": "0000072971",
+      "name": "WELLS FARGO & COMPANY/MN",
+      "ticker": "WFC"
+    },
+    {
+      "cik": "0000104169",
+      "name": "Walmart Inc.",
+      "ticker": "WMT"
+    },
+    {
+      "cik": "0002115436",
+      "name": "ExxonMobil Holdings Corp",
+      "ticker": "XOM"
+    }
+  ]
+}

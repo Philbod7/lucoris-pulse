@@ -131,8 +131,9 @@ liefern den Fakt selbst, nicht nur den Hinweis darauf. Details: `docs/decisions.
   die einzige Quelle der Wahrheit darüber, WAS abgerufen wird. Der Code entscheidet nur das WIE.
   Eine Quelle aktivieren = `enabled: true` setzen; bei `handler: generic_rss` ohne eine Zeile Code.
 - **Routing**: `AdapterDispatcher` wählt anhand von `handler` die Adapter-Klasse. Heute verdrahtet:
-  `generic_rss` (RSS 2.0 + Atom via Rome). Ein unbekannter Handler wirft — eine aktivierte Quelle,
-  die niemand abruft, wäre ein unsichtbares Datenloch.
+  `generic_rss` (RSS 2.0 + Atom via Rome), `sec_edgar` und `sec_edgar_daily` (EDGAR-Filings, siehe
+  unten). Ein unbekannter Handler wirft — eine aktivierte Quelle, die niemand abruft, wäre ein
+  unsichtbares Datenloch.
 - **Ausgabe**: alle Adapter emittieren `FeedItem` — die Feed-MELDUNG, bewusst nicht „Event"
   (ADR 25) — inkl. `guid`, `legal_class` und `attribution` aus der Quelle, damit Dedup und
   Rendering ohne erneuten Registry-Griff auskommen.
@@ -147,6 +148,46 @@ liefern den Fakt selbst, nicht nur den Hinweis darauf. Details: `docs/decisions.
 - **Aktiv**: welche Quellen `enabled: true` tragen, sagt allein das Manifest — die Anzahl ändert
   sich laufend. Konsistenzregel statt fixer Liste: jede enabled-Quelle hat einen implementierten
   Handler (`PrimarySourceManifestLoaderTest`).
+
+### EDGAR — zwei Handler, weil es keinen erlaubten Echtzeit-Gesamtstrom gibt
+8-K/8-K-A (US-Ad-hoc) aus EDGAR. Der naheliegende globale Strom
+(`browse-edgar?action=getcurrent`) ist **unzulässig**: `sec.gov/robots.txt` führt
+`Disallow: /cgi-bin` und erlaubt mit `Allow: /Archives/edgar/data` ausdrücklich nur die Daten. Das
+Gate hat den ersten scharfen Lauf zu Recht verweigert. Die Volltextsuche (`efts.sec.gov`) beantwortet
+ihre robots.txt mit **403** → fail-closed ebenfalls gesperrt. Es bleiben zwei Wege, die sich ergänzen:
+
+| Handler | Endpunkt | Abdeckung | Frische | Zeitstempel |
+|---|---|---|---|---|
+| `sec_edgar` | `data.sec.gov/submissions/CIK*.json` | nur Watchlist | Echtzeit (<1s) | exakt (`acceptanceDateTime`) |
+| `sec_edgar_daily` | `/Archives/edgar/daily-index/.../master.{yyyyMMdd}.idx` | **alle** Firmen | End-of-Day (~22:00 ET) | nur Datum |
+
+- **`sec_edgar`** ist per Firma adressiert und braucht deshalb die kuratierte Watchlist
+  `src/main/resources/primary-sources/sec-edgar-ciks.json` (90 CIKs, aus der SEC-Quelle
+  `files/company_tickers.json` übernommen). Erweitern = Eintrag ergänzen, kein Code.
+  Pacing 120 ms (~8 Req/s) hält Abstand zum SEC-Limit von 10 Req/s (darüber drosselt sie mit 403);
+  Lookback 7 Tage hält den Batch klein, weil `filings.recent` bis ~1000 Einträge führt.
+- **`sec_edgar_daily`** ist das Netz darunter: der Tagesindex führt ALLE Einreichungen eines Tages,
+  auch von Firmen außerhalb der Watchlist — dafür erst abends und ohne Uhrzeit (`publishedAt` =
+  Tagesbeginn UTC, bewusste Ungenauigkeit). Er liest die letzten `dailyIndexDays` (Default 3)
+  Kalendertage und mischt sie: die Datei des laufenden Tages gibt es erst ~22:00 ET (davor 403), und
+  ein Netz, das nur zwischen 22:00 ET und Mitternacht fängt, wäre keines. Die Überlappung entdoppelt
+  `DedupKeys`.
+- **Beide erzeugen denselben `dedup_key`**: `SecEdgarUrls.filingPermalink` konstruiert aus CIK +
+  Accession denselben Link (`/Archives/edgar/data/{cik}/{accOhneStriche}/{acc}-index.htm`),
+  `guid` = Accession → `DedupKeys` fällt darauf zurück. Kein Doppel-Insert; wer zuerst liefert,
+  gewinnt (fast immer der Echtzeit-Pfad mit dem exakten Zeitstempel). Der Permalink wird
+  **konstruiert, nicht übernommen** — EDGARs eigene Links zeigen firmenweit auf `getcompany`.
+- **`access.url` ist das Präfix**, das der Gate prüft; die Adapter fächern darunter auf. Beide
+  Präfixe tragen keine tieferen robots-Regeln (geprüft) — Grenze bewusst in Kauf genommen (ADR 27).
+- `legal_class: A` (gemeinfrei, 17 U.S.C. § 105); Anzeige-Regel Institution+Datum+Deep-Link gilt
+  trotzdem. Kein `express_invitation` nötig (es gibt kein Disallow zu heilen), keine UA-Änderung
+  (der bestehende UA bekommt von `data.sec.gov` HTTP 200).
+- **`enabled` bleibt `false`** (`confidence: verify_endpoint`) bis zur grünen Live-Probe:
+  ```
+  PRIMARY_LIVE_IT=true mvn -Dit.test=PrimarySourceProbeIT -Dprimary.source=sec-edgar verify
+  PRIMARY_LIVE_IT=true mvn -Dit.test=PrimarySourceProbeIT -Dprimary.source=sec-edgar-daily-index verify
+  ```
+  Der Tagesindex ist tagsüber erwartungsgemäß leer (Datei erscheint ~22:00 ET). Details: ADR 27.
 
 ### Periodischer Poller
 `PrimaryPollingConfig` (Profil `ingest`) startet EINEN `@Scheduled`-Tick (fixedDelay,
@@ -241,9 +282,9 @@ Verboten wird, wenn **einer** dieser drei Gründe greift:
 sauberes HTTP 404/410 heißt „keine robots.txt, also keine Einschränkung" (RFC 9309). Jede
 Entscheidung wird mit Zeitstempel geloggt (Beweislast). Es gibt **keinen Ausschalter**.
 
-Das Gate sitzt als Dekorator VOR dem Dispatcher — jeder Handler (auch der künftige `sec_edgar`) ist
-damit zwangsläufig abgedeckt, und auch `PrimarySourceProbeIT` läuft hindurch: gerade dort wird eine
-noch ungeprüfte Quelle zum ersten Mal angefasst.
+Das Gate sitzt als Dekorator VOR dem Dispatcher — jeder Handler (RSS wie `sec_edgar`) ist damit
+zwangsläufig abgedeckt, und auch `PrimarySourceProbeIT` läuft hindurch: gerade dort wird eine noch
+ungeprüfte Quelle zum ersten Mal angefasst.
 
 Ein Verbot wirft `SourceNotPermittedException` (keine stille leere Liste). Der Ingest fängt es pro
 Quelle ab, der Validator meldet es als `VERBOTEN`.

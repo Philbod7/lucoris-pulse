@@ -10,10 +10,10 @@
       "enabled": true, "confidence": "verified", "legal_class": "A"
     },
     {
-      "id": "aktiv-kaputt", "institution": "Quelle mit unfertigem Handler", "category": "company_primary", "region": "US", "tier": 1,
-      "originates": ["us_ad_hoc_8k"],
-      "access": { "type": "api", "url": "https://example.org/edgar", "format": "json" },
-      "handler": "sec_edgar", "poll": { "mode": "interval", "seconds": 120 },
+      "id": "aktiv-kaputt", "institution": "Quelle mit unfertigem Handler", "category": "government_executive", "region": "US", "tier": 1,
+      "originates": ["press_release"],
+      "access": { "type": "landing", "url": "https://example.org/index", "format": "html" },
+      "handler": "html_index", "poll": { "mode": "interval", "seconds": 120 },
       "enabled": true, "confidence": "verify_endpoint", "legal_class": "A"
     },
     {

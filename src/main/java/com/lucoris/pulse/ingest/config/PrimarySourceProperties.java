@@ -48,6 +48,74 @@ public class PrimarySourceProperties {
     /** Der periodische Poller ({@code lucoris.ingest.primary.poll.*}). */
     private final Poll poll = new Poll();
 
+    /** Der EDGAR-Handler ({@code lucoris.ingest.primary.sec-edgar.*}). */
+    private final SecEdgar secEdgar = new SecEdgar();
+
+    /** Konfiguration der beiden EDGAR-Handler. */
+    public static class SecEdgar {
+
+        /** Classpath-Ort der kuratierten CIK-Watchlist — ohne {@code classpath:}-Präfix. */
+        private String ciks = "primary-sources/sec-edgar-ciks.json";
+
+        /**
+         * Mindestabstand zwischen zwei Requests an EDGAR. Die SEC lässt 10 Req/s pro IP zu und
+         * drosselt darüber mit 403; 120 ms (~8 Req/s) hält bewusst Abstand zur Grenze, statt sie
+         * auszureizen. Ein Sweep über 90 CIKs dauert damit ~11 s — bei 120 s Poll-Intervall reichlich.
+         */
+        private Duration pacing = Duration.ofMillis(120);
+
+        /**
+         * Wie weit zurück Einreichungen noch als Meldung gelten. Nötig, weil {@code filings.recent}
+         * bis zu ~1000 Einträge (rund ein Jahr) führt: ohne Fenster würde jeder Tick die ganze
+         * Historie jeder Firma durch die Dedup-Prüfung schicken. Großzügig genug, um einen
+         * mehrtägigen Ausfall aufzuholen.
+         */
+        private Duration lookback = Duration.ofDays(7);
+
+        /**
+         * Wie viele Tagesindizes der Voll-Abgleich ({@code sec_edgar_daily}) je Lauf liest.
+         *
+         * <p>Nicht 1: die Datei des laufenden Tages erscheint erst gegen 22:00 ET (davor antwortet
+         * die SEC mit 403). Läse der Adapter nur „heute", lieferte er nur zwischen 22:00 ET und
+         * Mitternacht überhaupt etwas — ein Neustart in diesem Fenster verlöre den Tag still. Genau
+         * das darf ein Sicherheitsnetz nicht. 3 Tage überbrücken zudem ein Wochenende. Die
+         * Überlappung kostet nichts: {@code DedupKeys} kollabiert alles bereits Gespeicherte.
+         */
+        private int dailyIndexDays = 3;
+
+        public String getCiks() {
+            return ciks;
+        }
+
+        public void setCiks(String ciks) {
+            this.ciks = ciks;
+        }
+
+        public Duration getPacing() {
+            return pacing;
+        }
+
+        public void setPacing(Duration pacing) {
+            this.pacing = pacing;
+        }
+
+        public Duration getLookback() {
+            return lookback;
+        }
+
+        public void setLookback(Duration lookback) {
+            this.lookback = lookback;
+        }
+
+        public int getDailyIndexDays() {
+            return dailyIndexDays;
+        }
+
+        public void setDailyIndexDays(int dailyIndexDays) {
+            this.dailyIndexDays = dailyIndexDays;
+        }
+    }
+
     /** Konfiguration des Pollers. Default AUS — Tests dürfen nie von selbst ins Netz. */
     public static class Poll {
 
@@ -143,5 +211,9 @@ public class PrimarySourceProperties {
 
     public Poll getPoll() {
         return poll;
+    }
+
+    public SecEdgar getSecEdgar() {
+        return secEdgar;
     }
 }

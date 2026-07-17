@@ -62,8 +62,21 @@ class PrimarySourceProbeIT {
         PrimarySourceProperties props = new PrimarySourceProperties();
         props.setConnectTimeout(Duration.ofSeconds(10));
         props.setRequestTimeout(Duration.ofSeconds(30));
-        GenericRssAdapter rss = new GenericRssAdapter(new HttpFeedFetcher(props), Clock.systemUTC());
-        AdapterDispatcher dispatcher = new AdapterDispatcher(Map.of(GenericRssAdapter.HANDLER, rss));
+        HttpFeedFetcher fetcher = new HttpFeedFetcher(props);
+        GenericRssAdapter rss = new GenericRssAdapter(fetcher, Clock.systemUTC());
+        // Die Probe nimmt die ECHTE Watchlist und das echte Pacing: sie soll zeigen, was der Betrieb
+        // tut, nicht eine geschönte Variante davon.
+        SecEdgarAdapter edgar = new SecEdgarAdapter(
+                fetcher,
+                new SecEdgarCikLoader(JsonMapper.builder().build(), props.getSecEdgar().getCiks()),
+                JsonMapper.builder().build(), Clock.systemUTC(),
+                props.getSecEdgar().getPacing(), props.getSecEdgar().getLookback());
+        SecEdgarDailyIndexAdapter edgarDaily = new SecEdgarDailyIndexAdapter(
+                fetcher, Clock.systemUTC(), props.getSecEdgar().getDailyIndexDays());
+        AdapterDispatcher dispatcher = new AdapterDispatcher(Map.of(
+                GenericRssAdapter.HANDLER, rss,
+                SecEdgarAdapter.HANDLER, edgar,
+                SecEdgarDailyIndexAdapter.HANDLER, edgarDaily));
 
         // Auch die Probe läuft durch das Gate — gerade sie. Hier wird eine noch UNGEPRÜFTE Quelle
         // zum ersten Mal angefasst; das ist der Moment, in dem robots.txt/TDM zählen. Untersagt der

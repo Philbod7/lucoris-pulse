@@ -27,7 +27,8 @@ class PrimarySourceManifestLoaderTest {
      * (Routing-Tabelle in {@code PrimarySourcesConfig}). Kommt ein Adapter dazu, wächst dieses
      * Set — der Test darunter erzwingt, dass keine Quelle VOR ihrem Adapter freigeschaltet wird.
      */
-    private static final Set<String> IMPLEMENTED_HANDLERS = Set.of(GenericRssAdapter.HANDLER);
+    private static final Set<String> IMPLEMENTED_HANDLERS = Set.of(
+            GenericRssAdapter.HANDLER, SecEdgarAdapter.HANDLER, SecEdgarDailyIndexAdapter.HANDLER);
 
     @Test
     void manifestLoadsAndEnabledSourcesAreConsistent() {

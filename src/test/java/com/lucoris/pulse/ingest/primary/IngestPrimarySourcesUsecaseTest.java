@@ -58,12 +58,12 @@ class IngestPrimarySourcesUsecaseTest {
                 .containsExactly("aktiv-ok", "aktiv-kaputt", "aktiv-danach");
         assertThat(report.failures()).singleElement().satisfies(f -> {
             assertThat(f.sourceId()).isEqualTo("aktiv-kaputt");
-            assertThat(f.error()).contains("sec_edgar");
+            assertThat(f.error()).contains("html_index");
         });
 
         // Der Fehlerzustand ist festgehalten, die Erfolge auch.
         assertThat(states.bySourceId.get("aktiv-kaputt").getConsecutiveFailures()).isEqualTo(1);
-        assertThat(states.bySourceId.get("aktiv-kaputt").getLastError()).contains("sec_edgar");
+        assertThat(states.bySourceId.get("aktiv-kaputt").getLastError()).contains("html_index");
         assertThat(states.bySourceId.get("aktiv-ok").getConsecutiveFailures()).isZero();
         assertThat(states.bySourceId.get("aktiv-ok").getLastSuccessAt()).isEqualTo(NOW);
     }

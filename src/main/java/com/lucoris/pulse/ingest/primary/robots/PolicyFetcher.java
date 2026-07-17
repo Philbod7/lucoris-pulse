@@ -46,11 +46,17 @@ public interface PolicyFetcher {
         }
 
         /**
-         * Wir konnten die Erlaubnis NICHT feststellen: Netzfehler, Serverfehler (5xx) oder
-         * Zugriffsverweigerung (401/403 — RFC 9309 wertet das als vollständiges Verbot).
+         * Wir konnten die Erlaubnis NICHT feststellen: Netzfehler, Serverfehler (5xx),
+         * Zugriffsverweigerung (401/403) oder Drosselung (429). RFC 9309 § 2.3.1.4 wertet all das
+         * als „unavailable" und damit als vollständiges Verbot.
+         *
+         * <p>429 gehört ausdrücklich dazu: wer uns drosselt, hat uns die Hausordnung nicht gezeigt.
+         * Ein gedrosseltes robots.txt als „keine Regeln, also alles erlaubt" zu lesen, wäre die
+         * Antwort genau falsch herum — gerade bei Hosts mit hartem Ratenlimit (SEC EDGAR: 10 Req/s).
          */
         public boolean unknown() {
-            return status == NETWORK_ERROR || status >= 500 || status == 401 || status == 403;
+            return status == NETWORK_ERROR || status >= 500
+                    || status == 401 || status == 403 || status == 429;
         }
     }
 }

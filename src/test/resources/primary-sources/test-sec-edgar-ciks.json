@@ -1,0 +1,8 @@
+{
+  "version": "test-ciks",
+  "purpose": "Nur fuer Unit-Tests des SecEdgarAdapter. NICHT die echte Watchlist. 'apple' hat eine Fixture, 'nicht-abrufbar' bewusst nicht — so ist der Skip-Pfad mitgetestet.",
+  "ciks": [
+    { "cik": "0000320193", "name": "Apple Inc.", "ticker": "AAPL" },
+    { "cik": "0000999999", "name": "Ohne Fixture (nicht abrufbar)", "ticker": "NONE" }
+  ]
+}

@@ -9,6 +9,9 @@ import com.lucoris.pulse.ingest.primary.adapter.HttpFeedFetcher;
 import com.lucoris.pulse.ingest.primary.IngestPrimarySourcesUsecase;
 import com.lucoris.pulse.ingest.primary.PrimarySourceManifestLoader;
 import com.lucoris.pulse.ingest.primary.RobotsGatedAdapter;
+import com.lucoris.pulse.ingest.primary.SecEdgarAdapter;
+import com.lucoris.pulse.ingest.primary.SecEdgarCikLoader;
+import com.lucoris.pulse.ingest.primary.SecEdgarDailyIndexAdapter;
 import com.lucoris.pulse.ingest.primary.SourceLoadValidator;
 import com.lucoris.pulse.ingest.primary.robots.CachingRobotsGate;
 import com.lucoris.pulse.ingest.primary.robots.InvitationVerifier;
@@ -65,10 +68,44 @@ public class PrimarySourcesConfig {
         return new GenericRssAdapter(tdmAwareFeedFetcher, Clock.systemUTC());
     }
 
-    /** Routing-Tabelle {@code handler} -> Adapter. Weitere Handler (sec_edgar, ...) kommen hier dazu. */
+    /** Die kuratierte CIK-Watchlist des Echtzeit-EDGAR-Pfads (eigener Mapper, gleiche Begründung). */
     @Bean
-    AdapterDispatcher adapterDispatcher(GenericRssAdapter genericRssAdapter) {
-        return new AdapterDispatcher(Map.of(GenericRssAdapter.HANDLER, genericRssAdapter));
+    SecEdgarCikLoader secEdgarCikLoader(PrimarySourceProperties props) {
+        return new SecEdgarCikLoader(JsonMapper.builder().build(), props.getSecEdgar().getCiks());
+    }
+
+    /**
+     * Handler {@code sec_edgar}: die EDGAR-submissions-API (Echtzeit, je Firma der Watchlist).
+     * Teilt sich mit dem RSS-Adapter den {@link TdmAwareFeedFetcher} — der TDM-Header-Kanal gilt
+     * damit auch hier.
+     */
+    @Bean
+    SecEdgarAdapter secEdgarAdapter(TdmAwareFeedFetcher tdmAwareFeedFetcher,
+            SecEdgarCikLoader secEdgarCikLoader, PrimarySourceProperties props) {
+        return new SecEdgarAdapter(tdmAwareFeedFetcher, secEdgarCikLoader, JsonMapper.builder().build(),
+                Clock.systemUTC(), props.getSecEdgar().getPacing(), props.getSecEdgar().getLookback());
+    }
+
+    /**
+     * Handler {@code sec_edgar_daily}: der EDGAR-Tagesindex — das Netz unter dem Echtzeit-Pfad, das
+     * auch Einreichungen von Firmen AUSSERHALB der Watchlist auffängt (dafür erst am Abend und ohne
+     * Uhrzeit).
+     */
+    @Bean
+    SecEdgarDailyIndexAdapter secEdgarDailyIndexAdapter(TdmAwareFeedFetcher tdmAwareFeedFetcher,
+            PrimarySourceProperties props) {
+        return new SecEdgarDailyIndexAdapter(tdmAwareFeedFetcher, Clock.systemUTC(),
+                props.getSecEdgar().getDailyIndexDays());
+    }
+
+    /** Routing-Tabelle {@code handler} -> Adapter. Weitere Handler ({@code html_index}, ...) kommen hier dazu. */
+    @Bean
+    AdapterDispatcher adapterDispatcher(GenericRssAdapter genericRssAdapter,
+            SecEdgarAdapter secEdgarAdapter, SecEdgarDailyIndexAdapter secEdgarDailyIndexAdapter) {
+        return new AdapterDispatcher(Map.of(
+                GenericRssAdapter.HANDLER, genericRssAdapter,
+                SecEdgarAdapter.HANDLER, secEdgarAdapter,
+                SecEdgarDailyIndexAdapter.HANDLER, secEdgarDailyIndexAdapter));
     }
 
     /** robots.txt-/TDM-Prüfung mit Cache je Host. Fail-closed: keine Auskunft = kein Abruf. */
